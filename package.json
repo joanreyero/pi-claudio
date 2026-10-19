@@ -1,0 +1,22 @@
+{
+  "name": "pi-ember",
+  "version": "0.1.0",
+  "description": "A warm finish for pi — Claude Code-inspired look and feel: ● tool rows, spinner verbs, permission modes, background tasks, todos, rewind.",
+  "type": "module",
+  "keywords": ["pi-package", "pi", "theme", "ui", "claude-code"],
+  "license": "MIT",
+  "author": "Joan Reyero",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/joanreyero/pi-ember.git"
+  },
+  "homepage": "https://github.com/joanreyero/pi-ember#readme",
+  "bugs": "https://github.com/joanreyero/pi-ember/issues",
+  "files": ["extensions", "themes", "docs", "scripts", "README.md", "LICENSE"],
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  }
+}
