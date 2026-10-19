@@ -5,7 +5,7 @@
  * startup because we draw our own header, collapsed thinking, and Pi's double-escape action disabled so
  * Esc Esc can open Rewind) and three keybindings (Esc interrupts, ctrl+o expands tool output, shift+tab
  * freed from `app.thinking.cycle` so it can cycle permission modes). The colours follow whatever Pi theme
- * is active; the bundled `claudio` theme is only selected when the user has not chosen a theme.
+ * is active; `light/claudio` is only written when the user has not chosen a theme.
  *
  * `/claudio setup` merges those into `~/.pi/agent/settings.json` and `~/.pi/agent/keybindings.json`
  * (other keys are kept) and installs the workflow package pi-claudio ships with (`npm:pi-extensible-workflows`,
@@ -34,11 +34,12 @@ export const RECOMMENDED_KEYBINDINGS: Readonly<Record<string, string>> = {
 };
 
 /**
- * The bundled theme with Claude Code's exact colours. `/claudio setup` selects it only when the user
- * has no `theme` setting yet: pi-claudio renders with whatever Pi theme is active (`/settings` → Theme),
- * so an explicit choice such as `dark`, `light` or `light/dark` is left alone.
+ * Theme written by `/claudio setup` when the user has no `theme` setting yet. The bundled `claudio`
+ * theme is Claude Code's *dark* palette (white text), so it is paired with Pi's `light` theme in Pi's
+ * `light/dark` form: light terminals get `light`, dark terminals get `claudio`. pi-claudio renders with
+ * whatever Pi theme is active, so an existing choice such as `dark` or `system` is left alone.
  */
-export const DEFAULT_THEME = "claudio";
+export const DEFAULT_THEME = "light/claudio";
 
 /** The workflow package pi-claudio recommends and installs (the winner of docs/workflows-eval.md). */
 export const WORKFLOWS_PACKAGE = "npm:pi-extensible-workflows";
@@ -191,7 +192,7 @@ export function setupClaudioCommand(pi: ExtensionAPI): void {
 				const all = checks();
 				const lines = all.map((c) => `${c.ok ? "✔" : "✕"} ${c.label}: ${c.current}${c.ok ? "" : ` → wanted ${c.wanted}`}`);
 				const themeSetting = readJson(settingsPath()).theme;
-				lines.push(`· settings.theme: ${themeSetting === undefined ? "(unset → system)" : fmt(themeSetting)} — any Pi theme works; \`${DEFAULT_THEME}\` has Claude Code's colours`);
+				lines.push(`· settings.theme: ${themeSetting === undefined ? "(unset → system)" : fmt(themeSetting)} — any Pi theme works; \`${DEFAULT_THEME}\` gives Claude Code's colours on dark terminals`);
 				const missing = all.filter((c) => !c.ok).length;
 				lines.push(missing === 0 ? "pi-claudio is fully set up." : `${missing} setting${missing === 1 ? "" : "s"} missing — run /claudio setup.`);
 				if (sub === "") lines.push(USAGE);

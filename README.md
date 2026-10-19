@@ -69,7 +69,7 @@ Then, inside pi:
 /claudio setup
 ```
 
-`/claudio setup` merges the recommended settings and keybindings into your personal config (other keys are kept), selects the `claudio` theme only if you have not chosen a theme yet, installs `npm:pi-extensible-workflows` if it is missing (see [Workflows](#workflows)) and asks you to restart or `/reload`. Until it has run, pi-claudio shows a one-line hint at startup.
+`/claudio setup` merges the recommended settings and keybindings into your personal config (other keys are kept), sets the theme to `light/claudio` only if you have not chosen one yet (Pi's `light` theme on light terminals, the bundled Claude Code palette on dark ones), installs `npm:pi-extensible-workflows` if it is missing (see [Workflows](#workflows)) and asks you to restart or `/reload`. Until it has run, pi-claudio shows a one-line hint at startup.
 
 `/claudio status` shows which of the recommended values are applied and whether the workflow package is installed.
 
@@ -89,7 +89,7 @@ Then, inside pi:
 }
 ```
 
-plus `"theme": "claudio"` when `theme` is not set yet (an existing choice such as `"dark"` or `"light/dark"` is left alone).
+plus `"theme": "light/claudio"` when `theme` is not set yet (an existing choice such as `"dark"` or `"system"` is left alone).
 
 - `tuiMode: regular` — scrollback-style transcript rather than fullscreen.
 - `outputPad: 0` — the `●` sits in column 0.
@@ -125,7 +125,7 @@ pi-claudio has no colours of its own: each role in the UI maps to a token of the
 | Secondary and subtle text | `muted` / `borderMuted` |
 | Diff rows and word highlights | `toolDiffAdded` / `toolDiffRemoved`, tinted toward the theme background (light or dark) |
 
-The bundled `claudio` theme (`themes/claudio.json`) sets those tokens to Claude Code's colours; copy it to `~/.pi/agent/themes/` to tweak them (see Pi's `docs/themes.md`).
+The bundled `claudio` theme (`themes/claudio.json`) sets those tokens to Claude Code's colours. It is a **dark** theme (white text): on a light terminal use `system`, `light`, or the pair `light/claudio`, which Pi switches by terminal appearance. Copy the file to `~/.pi/agent/themes/` to tweak it (see Pi's `docs/themes.md`).
 
 ### Permission modes
 
