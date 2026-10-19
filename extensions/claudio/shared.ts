@@ -1,22 +1,38 @@
 /**
  * shared.ts — constants and helpers shared by every module of pi-claudio (a UI inspired by Claude Code).
  *
- * Pure module: no side effects, no timers (only `getAgentDir` from pi-coding-agent and pi-tui width helpers).
- * Everything here is safe to import from any other module.
+ * Pure module: no side effects, no timers (only `getAgentDir` from pi-coding-agent and pi-tui width/colour
+ * helpers). Everything here is safe to import from any other module. Colours are resolved against the Pi
+ * theme bound with `bindTheme()` (index.ts, session_start); see the Palette section.
  */
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { Theme, ThemeBg, ThemeColor } from "@earendil-works/pi-coding-agent";
+import { backgroundAnsi, foregroundAnsi, mixColors, rgbColor, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { Color } from "@earendil-works/pi-tui";
 import { existsSync, renameSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Palette (warm dark palette inspired by Claude Code's `dark` theme)
+// Palette
+//
+// pi-claudio names its colours after their *role* in Claude Code's UI (`claudio` for the
+// orange bullet/spinner, `permission` for dialogs, `inactive` for secondary text, …). Every
+// role is resolved against the **active Pi theme** (`/settings` → Theme, or the `theme`
+// setting), so the UI follows `dark`, `light`, `system` or any custom theme instead of
+// painting Claude Code's own dark colours over whatever the user picked. The bundled
+// `claudio` theme maps those tokens back to Claude Code's exact colours.
+//
+// Roles that have no Pi token of their own (the spinner shimmer, diff row/word backgrounds)
+// are derived from theme colours with `mixColors`, taking the theme's light/dark appearance
+// into account. Until a theme is bound (`bindTheme`, called at session_start) the Claude Code
+// palette in `FALLBACK_RGB` is used, so nothing depends on the TUI being up.
 // ───────────────────────────────────────────────────────────────────────────────
 
 export type Rgb = readonly [r: number, g: number, b: number];
 
-export const RGB = {
+/** Claude Code's `dark` palette — the fallback before a Pi theme is bound. */
+export const FALLBACK_RGB = {
 	claudio: [215, 119, 87],
 	claudioShimmer: [235, 159, 127],
 	permission: [177, 185, 249],
@@ -34,23 +50,66 @@ export const RGB = {
 	warning: [255, 193, 7],
 	diffAdded: [34, 92, 43],
 	diffRemoved: [122, 41, 54],
-	diffAddedDimmed: [71, 88, 74],
-	diffRemovedDimmed: [105, 72, 77],
 	diffAddedWord: [56, 166, 96],
 	diffRemovedWord: [179, 89, 107],
 	userMessageBg: [55, 55, 55],
-	bashMessageBg: [65, 60, 65],
 	selectionBg: [38, 79, 120],
-	ide: [71, 130, 200],
-	professionalBlue: [106, 155, 204],
 } as const satisfies Record<string, Rgb>;
 
-export type PaletteKey = keyof typeof RGB;
+export type PaletteKey = keyof typeof FALLBACK_RGB;
 
-/** Hex form of the palette (handy for theme files / pi-tui `parseColor`). */
+/** Hex form of an RGB triple (handy for theme files / pi-tui `parseColor`). */
 export function rgbToHex([r, g, b]: Rgb): string {
 	return `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
 }
+
+/**
+ * How each palette role maps onto the active Pi theme:
+ * - `fg` / `bg`: a theme token used as is (keeps terminal-default and faint handling);
+ * - `derive`: a concrete colour computed from theme colours.
+ */
+type RoleSource = { fg: ThemeColor } | { bg: ThemeBg } | { derive: (theme: Theme) => Color };
+
+/** Mix `color` toward the theme's background (black for dark themes, white for light ones). */
+function towardBackground(theme: Theme, color: Color, amount: number): Color {
+	const base = theme.appearance === "light" ? rgbColor(255, 255, 255) : rgbColor(0, 0, 0);
+	return mixColors(color, base, amount, "srgb");
+}
+/** A lighter/brighter variant of `color` for shimmer effects: mixed toward the text colour. */
+function shimmerOf(theme: Theme, color: Color): Color {
+	return mixColors(color, theme.colors.text, 0.4, "srgb");
+}
+/** Diff row / word backgrounds: light themes need a paler tint than dark ones. */
+function diffRow(theme: Theme, color: Color): Color {
+	return towardBackground(theme, color, theme.appearance === "light" ? 0.78 : 0.55);
+}
+function diffWord(theme: Theme, color: Color): Color {
+	return towardBackground(theme, color, theme.appearance === "light" ? 0.5 : 0.15);
+}
+
+const ROLE_SOURCE: Record<PaletteKey, RoleSource> = {
+	claudio: { fg: "accent" },
+	claudioShimmer: { derive: (t) => shimmerOf(t, t.colors.accent) },
+	permission: { fg: "borderAccent" },
+	permissionShimmer: { derive: (t) => shimmerOf(t, t.colors.borderAccent) },
+	suggestion: { fg: "borderAccent" },
+	autoAccept: { fg: "borderAccent" },
+	planMode: { fg: "mdLink" },
+	bashBorder: { fg: "bashMode" },
+	promptBorder: { fg: "border" },
+	text: { fg: "text" },
+	inactive: { fg: "muted" },
+	subtle: { fg: "borderMuted" },
+	success: { fg: "success" },
+	error: { fg: "error" },
+	warning: { fg: "warning" },
+	diffAdded: { derive: (t) => diffRow(t, t.colors.toolDiffAdded) },
+	diffRemoved: { derive: (t) => diffRow(t, t.colors.toolDiffRemoved) },
+	diffAddedWord: { derive: (t) => diffWord(t, t.colors.toolDiffAdded) },
+	diffRemovedWord: { derive: (t) => diffWord(t, t.colors.toolDiffRemoved) },
+	userMessageBg: { bg: "userMessageBg" },
+	selectionBg: { bg: "selectedBg" },
+};
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Raw ANSI (truecolor). Pi resets all styles after every rendered line, so these
@@ -81,15 +140,88 @@ export function bgAnsi([r, g, b]: Rgb): string {
 	return `\x1b[48;2;${r};${g};${b}m`;
 }
 
-/** Ready-made foreground prefixes: `FG.claudio + "●" + ANSI.fgReset`. */
-export const FG = Object.fromEntries(
-	(Object.keys(RGB) as PaletteKey[]).map((k) => [k, fgAnsi(RGB[k])]),
-) as Record<PaletteKey, string>;
+// ── Theme binding ──────────────────────────────────────────────────────────────
 
-/** Ready-made background prefixes: `BG.diffAdded + line + ANSI.bgReset`. */
-export const BG = Object.fromEntries(
-	(Object.keys(RGB) as PaletteKey[]).map((k) => [k, bgAnsi(RGB[k])]),
-) as Record<PaletteKey, string>;
+let boundTheme: Theme | undefined;
+/** ANSI prefixes per role, rebuilt whenever the theme (or its resolved colours) change. */
+let ansiCache: { colors: unknown; fg: Map<PaletteKey, string>; bg: Map<PaletteKey, string> } | undefined;
+
+/**
+ * Bind the active Pi theme (`ctx.ui.theme`). Called once at `session_start`; the object Pi hands
+ * out is a live proxy, so later `/settings` theme switches and `system` theme re-queries are
+ * picked up automatically on the next render.
+ */
+export function bindTheme(theme: Theme | undefined): void {
+	boundTheme = theme;
+	ansiCache = undefined;
+}
+/** The bound Pi theme, if any (undefined in print mode / before session_start). */
+export function activeTheme(): Theme | undefined {
+	return boundTheme;
+}
+
+function cache(): { colors: unknown; fg: Map<PaletteKey, string>; bg: Map<PaletteKey, string> } {
+	let colors: unknown;
+	try {
+		colors = boundTheme?.colors;
+	} catch {
+		colors = undefined; // theme proxy not initialised yet (should not happen after session_start)
+	}
+	if (!ansiCache || ansiCache.colors !== colors) ansiCache = { colors, fg: new Map(), bg: new Map() };
+	return ansiCache;
+}
+
+function resolveFg(key: PaletteKey): string {
+	const c = cache();
+	let v = c.fg.get(key);
+	if (v !== undefined) return v;
+	const t = boundTheme;
+	if (!t || !c.colors) v = fgAnsi(FALLBACK_RGB[key]);
+	else {
+		const src = ROLE_SOURCE[key];
+		if ("fg" in src) v = t.getFgAnsi(src.fg);
+		else if ("bg" in src) v = foregroundAnsi(t.colors[src.bg], t.getColorMode());
+		else v = foregroundAnsi(src.derive(t), t.getColorMode());
+	}
+	c.fg.set(key, v);
+	return v;
+}
+
+function resolveBg(key: PaletteKey): string {
+	const c = cache();
+	let v = c.bg.get(key);
+	if (v !== undefined) return v;
+	const t = boundTheme;
+	if (!t || !c.colors) v = bgAnsi(FALLBACK_RGB[key]);
+	else {
+		const src = ROLE_SOURCE[key];
+		if ("bg" in src) v = t.getBgAnsi(src.bg);
+		else if ("fg" in src) v = backgroundAnsi(t.colors[src.fg], t.getColorMode());
+		else v = backgroundAnsi(src.derive(t), t.getColorMode());
+	}
+	c.bg.set(key, v);
+	return v;
+}
+
+function liveTable(resolve: (key: PaletteKey) => string): Record<PaletteKey, string> {
+	const table = {} as Record<PaletteKey, string>;
+	for (const key of Object.keys(FALLBACK_RGB) as PaletteKey[]) {
+		Object.defineProperty(table, key, { enumerable: true, get: () => resolve(key) });
+	}
+	return Object.freeze(table);
+}
+
+/**
+ * Foreground prefixes resolved from the active theme: `FG.claudio + "●" + ANSI.fgReset`.
+ * Getters — read them where you render, never cache the value at module load.
+ */
+export const FG: Record<PaletteKey, string> = liveTable(resolveFg);
+
+/**
+ * Background prefixes resolved from the active theme: `BG.diffAdded + line + ANSI.bgReset`.
+ * Getters — read them where you render, never cache the value at module load.
+ */
+export const BG: Record<PaletteKey, string> = liveTable(resolveBg);
 
 function perLine(text: string, open: string, close: string): string {
 	if (text.length === 0) return text;
@@ -99,10 +231,12 @@ function perLine(text: string, open: string, close: string): string {
 		.join("\n");
 }
 
-/** Colour `text` with a palette key or raw RGB foreground. Re-applied on every line. */
+/** Colour `text` with a palette role or raw RGB foreground. Re-applied on every line. */
 export function fg(color: PaletteKey | Rgb, text: string): string {
 	const open = typeof color === "string" ? FG[color] : fgAnsi(color);
-	return perLine(text, open, ANSI.fgReset);
+	// Faint theme tokens (SGR 2, used by `system` when the terminal reports no colours) must close the dim too.
+	const close = open.includes(ANSI.dim) ? `\x1b[22;39m` : ANSI.fgReset;
+	return perLine(text, open, close);
 }
 /** Paint a background behind `text`. Re-applied on every line. */
 export function bg(color: PaletteKey | Rgb, text: string): string {

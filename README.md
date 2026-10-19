@@ -54,7 +54,7 @@ While the model works:
 - **Header** with `✻ pi vX`, model · provider, cwd and a tip.
 - **MCP tool calls** render like any other tool: `● <server> · <tool>(args)` with the result preview (see [MCP](#mcp)).
 - **Workflows**: `/claudio setup` installs [pi-extensible-workflows](https://github.com/vekexasia/pi-extensible-workflows); its runs render as `● Task(name)` with a live agent tree — see [Workflows](#workflows).
-- A matching dark **theme** (`claudio`).
+- **Follows your Pi theme**: every colour (bullets, spinner, diffs, dialogs, footer pill) is resolved from the active Pi theme (`/settings` → Theme: `system`, `dark`, `light`, `light/dark` or a custom one), so pi-claudio works on light terminals too. The bundled **`claudio`** theme reproduces Claude Code's exact dark palette.
 
 ## Install
 
@@ -69,7 +69,7 @@ Then, inside pi:
 /claudio setup
 ```
 
-`/claudio setup` merges the recommended settings and keybindings into your personal config (other keys are kept), installs `npm:pi-extensible-workflows` if it is missing (see [Workflows](#workflows)) and asks you to restart or `/reload`. Until it has run, pi-claudio shows a one-line hint at startup.
+`/claudio setup` merges the recommended settings and keybindings into your personal config (other keys are kept), selects the `claudio` theme only if you have not chosen a theme yet, installs `npm:pi-extensible-workflows` if it is missing (see [Workflows](#workflows)) and asks you to restart or `/reload`. Until it has run, pi-claudio shows a one-line hint at startup.
 
 `/claudio status` shows which of the recommended values are applied and whether the workflow package is installed.
 
@@ -81,7 +81,6 @@ Then, inside pi:
 
 ```json
 {
-  "theme": "claudio",
   "tuiMode": "regular",
   "outputPad": 0,
   "quietStartup": true,
@@ -89,6 +88,8 @@ Then, inside pi:
   "doubleEscapeAction": "none"
 }
 ```
+
+plus `"theme": "claudio"` when `theme` is not set yet (an existing choice such as `"dark"` or `"light/dark"` is left alone).
 
 - `tuiMode: regular` — scrollback-style transcript rather than fullscreen.
 - `outputPad: 0` — the `●` sits in column 0.
@@ -109,6 +110,22 @@ Then, inside pi:
 `app.thinking.cycle` is moved to alt+t so shift+tab can cycle permission modes. If you also see a `ctrl+b` conflict warning with `tui.editor.cursorLeft`, add `"tui.editor.cursorLeft": ["left"]`.
 
 Everything pi-claudio persists (permission allow-lists, file checkpoints) lives in `~/.pi/agent/claudio/`, never inside the package directory.
+
+### Themes
+
+pi-claudio has no colours of its own: each role in the UI maps to a token of the active Pi theme, so switching themes in `/settings` restyles the whole chrome immediately.
+
+| pi-claudio role | Pi theme token |
+|---|---|
+| `●` running bullet, `✻` spinner and header, in-progress todo | `accent` (shimmer: `accent` mixed toward `text`) |
+| `●` done / failed bullet, `✔` / `✕` | `success` / `error` |
+| Permission, tasks and rewind dialogs, selected items | `borderAccent` |
+| Footer pill: bypass / plan / accept edits | `error` / `mdLink` / `borderAccent` |
+| Prompt box rules | `border` (dim); `bashMode` in `!` shell mode |
+| Secondary and subtle text | `muted` / `borderMuted` |
+| Diff rows and word highlights | `toolDiffAdded` / `toolDiffRemoved`, tinted toward the theme background (light or dark) |
+
+The bundled `claudio` theme (`themes/claudio.json`) sets those tokens to Claude Code's colours; copy it to `~/.pi/agent/themes/` to tweak them (see Pi's `docs/themes.md`).
 
 ### Permission modes
 
@@ -265,7 +282,7 @@ Four habits borrowed from the eval that cost nothing per turn. Paste into your `
 pi remove git:github.com/joanreyero/pi-claudio
 ```
 
-Then set `"theme"` in `~/.pi/agent/settings.json` to another theme (e.g. `"dark"`) and, if you want Pi's defaults back, remove the keys listed under [Configuration](#configuration) from `settings.json` and `keybindings.json`. State in `~/.pi/agent/claudio/` can be deleted.
+Then, if `"theme"` in `~/.pi/agent/settings.json` is `"claudio"`, set it to another theme (e.g. `"dark"`) or remove it, and, if you want Pi's defaults back, remove the keys listed under [Configuration](#configuration) from `settings.json` and `keybindings.json`. State in `~/.pi/agent/claudio/` can be deleted.
 
 ## Known limitations
 

@@ -24,7 +24,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { Component, Focusable } from "@earendil-works/pi-tui";
 import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { actions, ANSI, bus, dialogInnerWidth, dialogLines, dim, ELLIPSIS, FG, pluralize, POINTER, stateDir, success } from "./shared.ts";
+import { actions, bus, dialogInnerWidth, dialogLines, dim, ELLIPSIS, fg, pluralize, POINTER, stateDir, success } from "./shared.ts";
 
 // ───────────────────────────── storage ─────────────────────────────
 
@@ -252,8 +252,7 @@ interface ActionOption {
 	label: string;
 }
 
-const PERM = FG.permission;
-const FG_RESET = ANSI.fgReset;
+const perm = (s: string): string => fg("permission", s);
 
 class RewindDialog implements Component, Focusable {
 	focused = false;
@@ -328,7 +327,7 @@ class RewindDialog implements Component, Focusable {
 			body.push("Rewind to this message?");
 			this.options.forEach((opt, i) => {
 				const label = `${i + 1}. ${opt.label}`;
-				body.push(i === this.optionIndex ? `${PERM}${POINTER} ${label}${FG_RESET}` : `  ${label}`);
+				body.push(i === this.optionIndex ? perm(`${POINTER} ${label}`) : `  ${label}`);
 			});
 			return dialogLines(width, "permission", "Rewind to a previous message", undefined, body);
 		}
@@ -341,7 +340,7 @@ class RewindDialog implements Component, Focusable {
 			const text = truncateToWidth(firstLine(turn.text), textWidth, ELLIPSIS);
 			const gap = Math.max(1, inner - visibleWidth(prefix) - visibleWidth(text) - visibleWidth(time));
 			const row = `${prefix}${text}${" ".repeat(gap)}${dim(time)}`;
-			body.push(sel ? `${PERM}${row}${FG_RESET}` : row);
+			body.push(sel ? perm(row) : row);
 		});
 		body.push("");
 		body.push(dim("↑/↓ to select · enter to confirm · esc to cancel"));

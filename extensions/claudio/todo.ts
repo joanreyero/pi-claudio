@@ -18,13 +18,12 @@ import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme, ToolDefini
 import type { Component } from "@earendil-works/pi-tui";
 import { Text, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { ANSI, bus, FG, type TodoItem as SharedTodoItem } from "./shared.ts";
+import { ANSI, bus, FG, fg, type TodoItem as SharedTodoItem } from "./shared.ts";
 
-// ── palette via shared.ts (raw truecolor) ───────────────────────────────
-const ORANGE = FG.claudio;
-const GREEN = FG.success;
-const RED = FG.error;
-const FG_RESET = ANSI.fgReset;
+// ── palette via shared.ts (resolved from the active Pi theme at render time; FG is a live getter) ──
+const orange = (s: string): string => fg("claudio", s);
+const green = (s: string): string => fg("success", s);
+const red = (s: string): string => fg("error", s);
 const DIM = ANSI.dim;
 const BOLD = ANSI.bold;
 const STRIKE = ANSI.strike;
@@ -109,7 +108,7 @@ function styleItem(t: TodoItem, line: string): string {
 		case "completed":
 			return `${DIM}${STRIKE}${line}${ATTR_RESET}`;
 		case "in_progress":
-			return `${ORANGE}${BOLD}${line}${ATTR_RESET}`;
+			return `${FG.claudio}${BOLD}${line}${ATTR_RESET}`;
 		default:
 			return line;
 	}
@@ -155,7 +154,7 @@ class TodoList implements Component {
 	}
 	render(width: number): string[] {
 		if (!this.cache || this.cache.width !== width) {
-			const lines = this.error !== undefined ? [truncateToWidth(`  ${DIM}⎿${ATTR_RESET}  ${RED}${this.error}${FG_RESET}`, width)] : renderListLines(this.items, width);
+			const lines = this.error !== undefined ? [truncateToWidth(`  ${DIM}⎿${ATTR_RESET}  ${red(this.error)}`, width)] : renderListLines(this.items, width);
 			this.cache = { width, lines };
 		}
 		return this.cache.lines;
@@ -189,7 +188,7 @@ export function setupTodo(pi: ExtensionAPI): void {
 		},
 
 		renderCall(_args, _theme: Theme, ctx: RenderCtx) {
-			const bullet = !ctx.executionStarted || ctx.isPartial ? `${ORANGE}●${FG_RESET}` : ctx.isError ? `${RED}●${FG_RESET}` : `${GREEN}●${FG_RESET}`;
+			const bullet = !ctx.executionStarted || ctx.isPartial ? orange("●") : ctx.isError ? red("●") : green("●");
 			const text = (ctx.lastComponent as Text | undefined) ?? new Text("", 0, 0);
 			text.setText(`${bullet} ${BOLD}Update Todos${ATTR_RESET}`);
 			return text;

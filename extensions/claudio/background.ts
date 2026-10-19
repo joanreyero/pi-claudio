@@ -37,14 +37,13 @@ import { createWriteStream, mkdirSync, writeFileSync, type WriteStream } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Type } from "typebox";
-import { ANSI, actions, bold, bus, dialogInnerWidth, dialogLines, dim, FG, formatDuration, moreLines, RESULT_INDENT } from "./shared.ts";
+import { ANSI, actions, bold, bus, dialogInnerWidth, dialogLines, dim, fg, formatDuration, moreLines, RESULT_INDENT } from "./shared.ts";
 
-// ── palette via shared.ts (raw truecolor) ───────────────────────────────
-const ORANGE = FG.claudio;
-const GREEN = FG.success;
-const RED = FG.error;
-const PERM = FG.permission;
-const FG_RESET = ANSI.fgReset;
+// ── palette via shared.ts (resolved from the active Pi theme at render time; never cache FG/BG at module load)
+const orange = (s: string): string => fg("claudio", s);
+const green = (s: string): string => fg("success", s);
+const red = (s: string): string => fg("error", s);
+const perm = (s: string): string => fg("permission", s);
 const DIM = ANSI.dim;
 const ATTR_RESET = ANSI.reset;
 
@@ -294,11 +293,11 @@ function tailLines(text: string, n: number): string {
 function statusText(task: BackgroundTask): string {
 	switch (task.status) {
 		case "running":
-			return `${ORANGE}●${FG_RESET} running`;
+			return `${orange("●")} running`;
 		case "completed":
-			return `${GREEN}✔${FG_RESET} Completed`;
+			return `${green("✔")} Completed`;
 		case "failed":
-			return `${RED}✕${FG_RESET} Failed${task.exitCode !== null ? ` (exit ${task.exitCode})` : ""}`;
+			return `${red("✕")} Failed${task.exitCode !== null ? ` (exit ${task.exitCode})` : ""}`;
 		case "killed":
 			return `${DIM}■ Stopped${ATTR_RESET}`;
 	}
@@ -492,7 +491,7 @@ class BackgroundTasksDialog implements Component, Focusable {
 					const name = truncateToWidth(t.title.replace(/\s+/g, " "), nameWidth, "…", true);
 					const elapsed = formatDuration((t.endedAt ?? Date.now()) - t.startedAt).padEnd(6);
 					const status = truncateToWidth(statusText(t), 13, "…", true);
-					body.push(`${sel ? `${PERM}❯ ${name}${FG_RESET}` : `  ${name}`}  ${status}  ${DIM}${elapsed}  ${t.wake ? "wake" : "shell"}${ATTR_RESET}`);
+					body.push(`${sel ? perm(`❯ ${name}`) : `  ${name}`}  ${status}  ${DIM}${elapsed}  ${t.wake ? "wake" : "shell"}${ATTR_RESET}`);
 				});
 			}
 			body.push("");
@@ -791,10 +790,10 @@ export function setupBackground(pi: ExtensionAPI): void {
 		const pad = " ".repeat(opts.outputPad);
 		const status =
 			d.kind === "output"
-				? `${ORANGE}●${FG_RESET} ${bold(d.title)} · output`
+				? `${orange("●")} ${bold(d.title)} · output`
 				: d.status === "killed"
 					? `${DIM}●${ATTR_RESET} ${bold(d.title)} · stopped`
-					: `${d.exitCode === 0 ? GREEN : RED}●${FG_RESET} ${bold(d.title)} · exited ${d.exitCode ?? "?"}`;
+					: `${(d.exitCode === 0 ? green : red)("●")} ${bold(d.title)} · exited ${d.exitCode ?? "?"}`;
 		const all = d.lines.map((l) => l.replace(/\t/g, "    "));
 		const max = 8;
 		const shown = opts.expanded ? all : all.slice(0, max);
