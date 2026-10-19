@@ -9,7 +9,7 @@
  *        extra result lines, indented 5
  *        … +N lines (ctrl+o to expand)
  *
- * Bullet colour: ember orange while running, success green when done, error red on failure.
+ * Bullet colour: claudio orange while running, success green when done, error red on failure.
  * The bullet is the first character of the call line (after `context.outputPad` spaces).
  *
  * Colours, glyph constants and formatting helpers come from `shared.ts`.
@@ -32,7 +32,7 @@ import { ANSI, BG, FG, RESULT_INDENT, bold, bus, dim, formatDuration, formatToke
 
 // ───────────────────────────── Shared helpers ─────────────────────────────
 
-const ORANGE = FG.ember;
+const ORANGE = FG.claudio;
 const GREEN = FG.success;
 const RED = FG.error;
 const FG_RESET = ANSI.fgReset;
@@ -1099,4 +1099,4 @@ export function setupToolRenderers(pi: ExtensionAPI): void {
 }
 
 // Exported for unit tests / the integrator (e.g. the permission dialog can reuse the diff look).
-export { diffLines as renderEmberDiff };
+export { diffLines as renderClaudioDiff };

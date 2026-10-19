@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """pr-watch — poll a GitHub pull request and print ONE machine-friendly line per change.
 
-Meant to run under pi-ember's `bash … wake=true` (see the `pr_watch` tool), whose wake_pattern
+Meant to run under pi-claudio's `bash … wake=true` (see the `pr_watch` tool), whose wake_pattern
 picks these lines up and wakes the agent. Needs only `gh` (authenticated) and python3.
 
 Lines:

@@ -1,8 +1,8 @@
-# pi-ember
+# pi-claudio
 
-*A warm finish for [pi](https://pi.dev).*
+*Claude Code's look and feel for [pi](https://pi.dev).*
 
-pi-ember is a Pi package that reskins the interactive TUI with a look and feel inspired by Claude Code: `●` tool rows with `⎿` result previews, a whimsical spinner, a permission-mode pill in the footer, background shell tasks, a todo checklist, and Esc Esc rewind with file checkpoints. No build step: Pi loads the TypeScript directly.
+pi-claudio is a Pi package that reskins the interactive TUI with a look and feel inspired by Claude Code: `●` tool rows with `⎿` result previews, a whimsical spinner, a permission-mode pill in the footer, background shell tasks, a todo checklist, Esc Esc rewind with file checkpoints, and Claude Code-style multi-agent workflows (via [pi-extensible-workflows](#workflows)). No build step: Pi loads the TypeScript directly.
 
 ```
 ✻ pi v1.3.0
@@ -53,34 +53,35 @@ While the model works:
 - **Footer** with the context hint, session tokens/cost, context usage, permission pill and background-task count.
 - **Header** with `✻ pi vX`, model · provider, cwd and a tip.
 - **MCP tool calls** render like any other tool: `● <server> · <tool>(args)` with the result preview (see [MCP](#mcp)).
-- A matching dark **theme** (`ember`).
+- **Workflows**: `/claudio setup` installs [pi-extensible-workflows](https://github.com/vekexasia/pi-extensible-workflows); its runs render as `● Task(name)` with a live agent tree — see [Workflows](#workflows).
+- A matching dark **theme** (`claudio`).
 
 ## Install
 
 ```bash
-pi install git:github.com/joanreyero/pi-ember
+pi install git:github.com/joanreyero/pi-claudio
 pi
 ```
 
 Then, inside pi:
 
 ```
-/ember setup
+/claudio setup
 ```
 
-`/ember setup` merges the recommended settings and keybindings into your personal config (other keys are kept) and asks you to restart or `/reload`. Until it has run, pi-ember shows a one-line hint at startup.
+`/claudio setup` merges the recommended settings and keybindings into your personal config (other keys are kept), installs `npm:pi-extensible-workflows` if it is missing (see [Workflows](#workflows)) and asks you to restart or `/reload`. Until it has run, pi-claudio shows a one-line hint at startup.
 
-`/ember status` shows which of the recommended values are applied.
+`/claudio status` shows which of the recommended values are applied and whether the workflow package is installed.
 
 ## Configuration
 
-`/ember setup` writes:
+`/claudio setup` writes:
 
 `~/.pi/agent/settings.json`
 
 ```json
 {
-  "theme": "ember",
+  "theme": "claudio",
   "tuiMode": "regular",
   "outputPad": 0,
   "quietStartup": true,
@@ -91,7 +92,7 @@ Then, inside pi:
 
 - `tuiMode: regular` — scrollback-style transcript rather than fullscreen.
 - `outputPad: 0` — the `●` sits in column 0.
-- `quietStartup: true` — pi-ember draws its own header.
+- `quietStartup: true` — pi-claudio draws its own header.
 - `hideThinkingBlock: true` — collapsed thinking shows as `✻ Thinking…`.
 - `doubleEscapeAction: none` — frees Esc Esc for the rewind picker.
 
@@ -107,7 +108,7 @@ Then, inside pi:
 
 `app.thinking.cycle` is moved to alt+t so shift+tab can cycle permission modes. If you also see a `ctrl+b` conflict warning with `tui.editor.cursorLeft`, add `"tui.editor.cursorLeft": ["left"]`.
 
-Everything pi-ember persists (permission allow-lists, file checkpoints) lives in `~/.pi/agent/ember/`, never inside the package directory.
+Everything pi-claudio persists (permission allow-lists, file checkpoints) lives in `~/.pi/agent/claudio/`, never inside the package directory.
 
 ### Permission modes
 
@@ -146,9 +147,9 @@ The `bash` tool takes `wake: true` (implies `run_in_background`). The command ru
   ⎿  (no output)
 ```
 
-Each wake is a `bg-wake` message whose text is `<title> output:` + lines (or `<title> exited N.`) followed by `Log: <path>`; it is delivered with `{ triggerTurn: true, deliverAs: "followUp" }`, so a wake that arrives mid-turn queues behind the current turn instead of interrupting it. At most 200 lines per wake; the rest is counted and pointed at the log. Logs live under `$TMPDIR/pi-ember/<pi pid>/<task id>/` (`command`, `output.log`, `exitcode`) so concurrent pi sessions never share files. Wake tasks appear in `/tasks` (tagged `wake`) and in the footer count; `kill_shell` stops them (the exit wakes the agent once more). Commands moved to the background with **ctrl+b** also wake the agent when they exit.
+Each wake is a `bg-wake` message whose text is `<title> output:` + lines (or `<title> exited N.`) followed by `Log: <path>`; it is delivered with `{ triggerTurn: true, deliverAs: "followUp" }`, so a wake that arrives mid-turn queues behind the current turn instead of interrupting it. At most 200 lines per wake; the rest is counted and pointed at the log. Logs live under `$TMPDIR/pi-claudio/<pi pid>/<task id>/` (`command`, `output.log`, `exitcode`) so concurrent pi sessions never share files. Wake tasks appear in `/tasks` (tagged `wake`) and in the footer count; `kill_shell` stops them (the exit wakes the agent once more). Commands moved to the background with **ctrl+b** also wake the agent when they exit.
 
-The design and the batching logic follow [pi-bgwatch](https://github.com/josep-reyero/pi-bgwatch) by Josep Reyero (MIT) — pi-ember folds the same primitive into its existing background `bash` instead of adding a separate tool.
+The design and the batching logic follow [pi-bgwatch](https://github.com/josep-reyero/pi-bgwatch) by Josep Reyero (MIT) — pi-claudio folds the same primitive into its existing background `bash` instead of adding a separate tool.
 
 ## PR watching
 
@@ -175,7 +176,7 @@ Two tools wrap it:
 > watch PR 2, interval 15s, until ci_done
 
 ● PR Watch(#2 · every 15s)
-  ⎿  Watching joanreyero/pi-ember-scratch#2 every 15s until ci done (task 1d6a8c)
+  ⎿  Watching joanreyero/pi-claudio-scratch#2 every 15s until ci done (task 1d6a8c)
 
 ● Watching PR #2 every 15s; I'll report back when CI finishes.
 
@@ -195,9 +196,9 @@ Requires the GitHub CLI (`gh auth login`) and python3.
 
 ## MCP
 
-Pi's MCP support is built in; pi-ember only renders the calls. Add servers with `pi mcp add` or by editing `~/.pi/agent/mcp.json`, and inspect/sign in with `/mcp` inside a session (see Pi's `docs/mcp.md`).
+Pi's MCP support is built in; pi-claudio only renders the calls. Add servers with `pi mcp add` or by editing `~/.pi/agent/mcp.json`, and inspect/sign in with `/mcp` inside a session (see Pi's `docs/mcp.md`).
 
-Example — the Slack remote server with OAuth (an example only; pi-ember ships no server config):
+Example — the Slack remote server with OAuth (an example only; pi-claudio ships no server config):
 
 ```bash
 pi mcp add slack --url https://mcp.slack.com/mcp
@@ -226,13 +227,45 @@ Run `/mcp` (or `pi mcp login slack`) to sign in. Tools are named `mcp__<server>_
 
 MCP tools without `readOnlyHint` annotations are treated as destructive by the permission gate (they prompt in `default`/`acceptEdits` mode).
 
+## Workflows
+
+Claude Code's `Task` fan-out (parallel sub-agents, pipelines, reviews) comes from **[pi-extensible-workflows](https://github.com/vekexasia/pi-extensible-workflows)** (vekexasia). `/claudio setup` runs `pi install npm:pi-extensible-workflows` when it is missing; `/claudio status` reports it. Why this one: it won a head-to-head against pi-ultracode on review quality (equal), cost (equal), maintenance (6 contributors, weekly releases vs one author), install footprint (8 MB vs 72 MB) and system-prompt cost (+1.3 k chars vs +22 k chars on every turn) — details and numbers in [docs/workflows-eval.md](docs/workflows-eval.md). Don't install a second workflow package: they register the same `workflow` tool.
+
+How pi-claudio renders a run:
+
+```
+● Task(bug-review)
+  ⎿  ├ review background.ts · running
+     ├ review permissions.ts · running
+     ├ summarize · pending
+     └ Running…
+```
+
+`● Task(<name>)` rows with the live agent tree while it runs, `Done (N tool uses · tokens · time)` / `Workflow cancelled` on exit, and the `[workflow]` follow-up messages as normal `●` rows. `/workflow` opens the package's inline run browser (it respects the footer, no fullscreen overlay); the bundled prompt templates `/review`, `/parallel-review`, `/council`, `/scout`, `/deep-research` and the `subagents_*` tools work unchanged.
+
+### Workflow tips
+
+Four habits borrowed from the eval that cost nothing per turn. Paste into your `AGENTS.md`:
+
+```markdown
+## Workflow tips
+- Pick the smallest **depth** that lets you verify the key claim: `focused` = check it directly yourself, no agents;
+  `standard` = independent dimensions or competing hypotheses → fan out, then verify disputed claims;
+  `deep` = interacting invariants → independent evidence plus a counterexample. Risk words and file counts
+  don't raise depth; missing evidence does.
+- Before launching agents, `log('analysis-depth: <level> — <reason>')` so the choice shows in the Task tree.
+- Reviewers return structured output (`outputSchema`: `{ file, line, severity, title, evidence }`) and the
+  parent synthesises the lists itself instead of spawning a summariser agent.
+- Set effort per child with the model suffix: reviewers and judges `':high'`, mechanical children `':low'`.
+```
+
 ## Uninstall
 
 ```bash
-pi remove git:github.com/joanreyero/pi-ember
+pi remove git:github.com/joanreyero/pi-claudio
 ```
 
-Then set `"theme"` in `~/.pi/agent/settings.json` to another theme (e.g. `"dark"`) and, if you want Pi's defaults back, remove the keys listed under [Configuration](#configuration) from `settings.json` and `keybindings.json`. State in `~/.pi/agent/ember/` can be deleted.
+Then set `"theme"` in `~/.pi/agent/settings.json` to another theme (e.g. `"dark"`) and, if you want Pi's defaults back, remove the keys listed under [Configuration](#configuration) from `settings.json` and `keybindings.json`. State in `~/.pi/agent/claudio/` can be deleted.
 
 ## Known limitations
 
@@ -243,7 +276,7 @@ These come from Pi's extension API and cannot be changed from a package:
 - **Assistant messages starting with a fence, list or table** get the `●` on its own line above the block (the Markdown transformer can only prepend text). Code blocks keep Pi's fence rows.
 - **ctrl+o** also shows Pi's own `Tool output: expanded/collapsed` notice.
 - **`!` shell mode** output uses Pi's built-in bash execution component, not the `●`/`⎿` shape.
-- **shift+tab** is reserved by Pi for `app.thinking.cycle` until `/ember setup` rebinds it; before that use `/permissions` or `/plan`.
+- **shift+tab** is reserved by Pi for `app.thinking.cycle` until `/claudio setup` rebinds it; before that use `/permissions` or `/plan`.
 - The running tool bullet is steady orange (no blink): tool renderers have no lifecycle hook to stop a timer.
 
 ## Development

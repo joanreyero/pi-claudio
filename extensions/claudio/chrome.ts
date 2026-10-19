@@ -23,7 +23,7 @@ import {
 	bashBorder,
 	bold,
 	bus,
-	ember,
+	claudio,
 	dim,
 	fg,
 	permissionModePill,
@@ -107,7 +107,7 @@ function billingLabel(ctx: ExtensionContext): string {
 	return known[provider] ?? provider.split(/[-_]/).map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(" ");
 }
 
-class EmberHeader implements Component {
+class ClaudioHeader implements Component {
 	private readonly tip: string;
 	constructor(
 		private readonly tui: TUI,
@@ -121,11 +121,11 @@ class EmberHeader implements Component {
 	render(width: number): string[] {
 		const version = `v${VERSION}`;
 		if (this.tui.terminal.rows < 30) {
-			return ["", truncateToWidth(`${ember("✻")} ${bold("pi")} ${dim(version)}`, width), ""];
+			return ["", truncateToWidth(`${claudio("✻")} ${bold("pi")} ${dim(version)}`, width), ""];
 		}
 		const textMax = Math.max(10, width - 4);
 		const modelLine = this.billing ? `${this.model} · ${this.billing}` : this.model;
-		const textLines: string[] = [`${ember("✻")} ${bold("pi")} ${dim(version)}`];
+		const textLines: string[] = [`${claudio("✻")} ${bold("pi")} ${dim(version)}`];
 		if (visibleWidth(modelLine) <= textMax) textLines.push(dim(modelLine));
 		else textLines.push(dim(truncateToWidth(this.model, textMax)), dim(truncateToWidth(this.billing, textMax)));
 		// Deliberate: `~`-abbreviated cwd.
@@ -167,7 +167,7 @@ function pickPlaceholder(cwd: string): string {
 	return `Try "${example}"`;
 }
 
-class EmberEditor extends CustomEditor {
+class ClaudioEditor extends CustomEditor {
 	private readonly placeholder: string;
 	private topHidden = 0;
 
@@ -277,7 +277,7 @@ function modePill(): string {
 	return `${fg(pill.color, pill.text)}${dim(" (shift+tab to cycle)")}`;
 }
 
-class EmberFooter implements Component {
+class ClaudioFooter implements Component {
 	private readonly unsubscribe: () => void;
 	constructor(
 		private readonly tui: TUI,
@@ -435,19 +435,19 @@ export function setupChrome(pi: ExtensionAPI): void {
 		const cwd = ctx.cwd;
 
 		local.setHelpWidget = (show) =>
-			ctx.ui.setWidget("ember-shortcuts", show ? () => new HelpPanel() : undefined, { placement: "belowEditor" });
+			ctx.ui.setWidget("claudio-shortcuts", show ? () => new HelpPanel() : undefined, { placement: "belowEditor" });
 
 		ctx.ui.setHeader((tui) => {
 			local.requestRender = () => tui.requestRender();
-			return new EmberHeader(tui, model, billing, cwd);
+			return new ClaudioHeader(tui, model, billing, cwd);
 		});
 		ctx.ui.setEditorComponent((tui, theme, kb) => {
 			local.requestRender = () => tui.requestRender();
-			return new EmberEditor(tui, theme, kb, cwd);
+			return new ClaudioEditor(tui, theme, kb, cwd);
 		});
 		ctx.ui.setFooter((tui, _theme: Theme, _data: ReadonlyFooterDataProvider) => {
 			local.requestRender = () => tui.requestRender();
-			return new EmberFooter(tui, ctx);
+			return new ClaudioFooter(tui, ctx);
 		});
 	});
 

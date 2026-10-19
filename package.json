@@ -1,17 +1,17 @@
 {
-  "name": "pi-ember",
-  "version": "0.2.0",
-  "description": "A warm finish for pi — Claude Code-inspired look and feel: ● tool rows, spinner verbs, permission modes, background tasks that wake the agent, PR watching, todos, rewind.",
+  "name": "pi-claudio",
+  "version": "0.3.0",
+  "description": "Claude Code's look and feel for pi: ● tool rows, spinner verbs, permission modes, background tasks that wake the agent, PR watching, todos, rewind, workflows via pi-extensible-workflows.",
   "type": "module",
-  "keywords": ["pi-package", "pi", "theme", "ui", "claude-code"],
+  "keywords": ["pi-package", "pi", "theme", "ui", "claude-code", "workflows"],
   "license": "MIT",
   "author": "Joan Reyero",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/joanreyero/pi-ember.git"
+    "url": "git+https://github.com/joanreyero/pi-claudio.git"
   },
-  "homepage": "https://github.com/joanreyero/pi-ember#readme",
-  "bugs": "https://github.com/joanreyero/pi-ember/issues",
+  "homepage": "https://github.com/joanreyero/pi-claudio#readme",
+  "bugs": "https://github.com/joanreyero/pi-claudio/issues",
   "files": ["extensions", "themes", "docs", "scripts", "README.md", "LICENSE"],
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

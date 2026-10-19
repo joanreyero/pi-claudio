@@ -1,14 +1,15 @@
 /**
- * setup.ts — `/ember setup` and `/ember status`.
+ * setup.ts — `/claudio setup` and `/claudio status`.
  *
- * pi-ember needs a few host settings to look right (its own theme, scrollback-style TUI, no output
+ * pi-claudio needs a few host settings to look right (its own theme, scrollback-style TUI, no output
  * padding, a quiet startup because we draw our own header, collapsed thinking, and Pi's double-escape
  * action disabled so Esc Esc can open Rewind) and three keybindings (Esc interrupts, ctrl+o expands
  * tool output, shift+tab freed from `app.thinking.cycle` so it can cycle permission modes).
  *
- * `/ember setup` merges those into `~/.pi/agent/settings.json` and `~/.pi/agent/keybindings.json`
- * (other keys are kept). `/ember status` reports what is applied. On session start a single hint is
- * shown when the setup is incomplete.
+ * `/claudio setup` merges those into `~/.pi/agent/settings.json` and `~/.pi/agent/keybindings.json`
+ * (other keys are kept) and installs the workflow package pi-claudio ships with (`npm:pi-extensible-workflows`,
+ * see docs/workflows-eval.md) when it is missing. `/claudio status` reports what is applied. On session start a
+ * single hint is shown when the setup is incomplete.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -18,7 +19,7 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 type Json = Record<string, unknown>;
 
 export const RECOMMENDED_SETTINGS: Readonly<Json> = {
-	theme: "ember",
+	theme: "claudio",
 	tuiMode: "regular",
 	outputPad: 0,
 	quietStartup: true,
@@ -31,6 +32,9 @@ export const RECOMMENDED_KEYBINDINGS: Readonly<Record<string, string>> = {
 	"app.tools.expand": "ctrl+o",
 	"app.thinking.cycle": "alt+t",
 };
+
+/** The workflow package pi-claudio recommends and installs (the winner of docs/workflows-eval.md). */
+export const WORKFLOWS_PACKAGE = "npm:pi-extensible-workflows";
 
 function settingsPath(): string {
 	return join(getAgentDir(), "settings.json");
@@ -66,6 +70,13 @@ export function shiftTabIsFree(): boolean {
 	return !bindingKeys(binding).includes("shift+tab");
 }
 
+/** True when `~/.pi/agent/settings.json` lists the workflows package (`pi install` records packages there). */
+export function workflowsInstalled(): boolean {
+	const packages = readJson(settingsPath()).packages;
+	if (!Array.isArray(packages)) return false;
+	return packages.some((p) => (typeof p === "string" ? p : (p as { source?: unknown } | null)?.source) === WORKFLOWS_PACKAGE);
+}
+
 interface Check {
 	label: string;
 	ok: boolean;
@@ -90,6 +101,8 @@ export function checks(): Check[] {
 		const ok = k === "app.thinking.cycle" ? shiftTabIsFree() : bindingKeys(current).includes(wanted);
 		out.push({ label: `keybindings.${k}`, ok, current: fmt(current), wanted: fmt(wanted) });
 	}
+	const wf = workflowsInstalled();
+	out.push({ label: `packages.${WORKFLOWS_PACKAGE}`, ok: wf, current: wf ? "installed" : "(missing)", wanted: "installed (/claudio setup runs pi install)" });
 	return out;
 }
 
@@ -126,13 +139,13 @@ function applySetup(): { settingsChanged: string[]; keybindingsChanged: string[]
 	return { settingsChanged, keybindingsChanged };
 }
 
-const USAGE = "Usage: /ember setup — write the recommended settings and keybindings · /ember status — show what is applied";
+const USAGE = "Usage: /claudio setup — write the recommended settings and keybindings and install pi-extensible-workflows · /claudio status — show what is applied";
 
 let hinted = false;
 
-export function setupEmberCommand(pi: ExtensionAPI): void {
-	pi.registerCommand("ember", {
-		description: "pi-ember: `setup` writes the recommended settings/keybindings, `status` shows what is applied",
+export function setupClaudioCommand(pi: ExtensionAPI): void {
+	pi.registerCommand("claudio", {
+		description: "pi-claudio: `setup` writes the recommended settings/keybindings and installs pi-extensible-workflows, `status` shows what is applied",
 		getArgumentCompletions: (prefix: string) =>
 			["setup", "status"].filter((v) => v.startsWith(prefix.trim())).map((v) => ({ value: v, label: v })),
 		handler: async (args, ctx) => {
@@ -140,14 +153,26 @@ export function setupEmberCommand(pi: ExtensionAPI): void {
 			if (sub === "setup") {
 				const { settingsChanged, keybindingsChanged } = applySetup();
 				const changed = [...settingsChanged.map((k) => `settings.${k}`), ...keybindingsChanged.map((k) => `keybindings.${k}`)];
+				let workflowsNote = "";
+				if (!workflowsInstalled()) {
+					ctx.ui.notify(`pi-claudio: installing ${WORKFLOWS_PACKAGE} (pi install)…`, "info");
+					const r = await pi.exec("pi", ["install", WORKFLOWS_PACKAGE], { timeout: 180_000 });
+					if (r.code === 0) {
+						changed.push(`packages.${WORKFLOWS_PACKAGE}`);
+					} else {
+						const err = (r.stderr || r.stdout).trim().split("\n").slice(-3).join("\n");
+						workflowsNote = `\nCould not install ${WORKFLOWS_PACKAGE} (exit ${r.code}): ${err}\nRun \`pi install ${WORKFLOWS_PACKAGE}\` yourself.`;
+					}
+				}
 				if (changed.length === 0) {
-					ctx.ui.notify("pi-ember is already set up — nothing to change.", "info");
+					ctx.ui.notify(`pi-claudio is already set up — nothing to change.${workflowsNote}`, workflowsNote ? "warning" : "info");
 					return;
 				}
 				ctx.ui.notify(
-					`pi-ember: wrote ${changed.join(", ")} to ~/.pi/agent/settings.json and keybindings.json.\n` +
-						"Restart pi (or run /reload) to apply the theme and keybindings.",
-					"info",
+					`pi-claudio: wrote ${changed.join(", ")} to ~/.pi/agent/settings.json and keybindings.json.\n` +
+						"Restart pi (or run /reload) to apply the theme, keybindings and packages." +
+						workflowsNote,
+					workflowsNote ? "warning" : "info",
 				);
 				return;
 			}
@@ -155,7 +180,7 @@ export function setupEmberCommand(pi: ExtensionAPI): void {
 				const all = checks();
 				const lines = all.map((c) => `${c.ok ? "✔" : "✕"} ${c.label}: ${c.current}${c.ok ? "" : ` → wanted ${c.wanted}`}`);
 				const missing = all.filter((c) => !c.ok).length;
-				lines.push(missing === 0 ? "pi-ember is fully set up." : `${missing} setting${missing === 1 ? "" : "s"} missing — run /ember setup.`);
+				lines.push(missing === 0 ? "pi-claudio is fully set up." : `${missing} setting${missing === 1 ? "" : "s"} missing — run /claudio setup.`);
 				if (sub === "") lines.push(USAGE);
 				ctx.ui.notify(lines.join("\n"), missing === 0 ? "info" : "warning");
 				return;
@@ -167,8 +192,9 @@ export function setupEmberCommand(pi: ExtensionAPI): void {
 	pi.on("session_start", (_event, ctx) => {
 		if (!ctx.hasUI || hinted) return;
 		const settings = readJson(settingsPath());
-		if (settings.theme === "ember" && shiftTabIsFree()) return;
+		if (settings.theme === "claudio" && shiftTabIsFree() && workflowsInstalled()) return;
 		hinted = true;
-		ctx.ui.notify("Run /ember setup to finish installing pi-ember", "info");
+		const missingWf = workflowsInstalled() ? "" : " (also installs pi-extensible-workflows for /workflow and ● Task runs)";
+		ctx.ui.notify(`Run /claudio setup to finish installing pi-claudio${missingWf}`, "info");
 	});
 }

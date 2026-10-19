@@ -8,7 +8,7 @@
  * - Rendering (renderShell "self"):
  *       ● Update Todos
  *         ⎿  ☒ completed item        (strikethrough, dim)
- *            ☐ in-progress item      (bold, ember orange)
+ *            ☐ in-progress item      (bold, claudio orange)
  *            ☐ pending item
  * - Publishes the current in_progress todo on the bus key `currentTodo` (shared.ts) as
  *   `{ content, status, activeForm }` (activeForm is an extra field on shared's TodoItem).
@@ -21,7 +21,7 @@ import { Type } from "typebox";
 import { ANSI, bus, FG, type TodoItem as SharedTodoItem } from "./shared.ts";
 
 // ── palette via shared.ts (raw truecolor) ───────────────────────────────
-const ORANGE = FG.ember;
+const ORANGE = FG.claudio;
 const GREEN = FG.success;
 const RED = FG.error;
 const FG_RESET = ANSI.fgReset;

@@ -11,9 +11,9 @@
  * Behaviour:
  *  - frames `· ✢ ✳ ✶ ✻ ✽` (`*` replaces `✳` outside ghostty), eased
  *    forward/back with a cosine over a 2 s period, sampled every 100 ms (≈ the classic
- *    forward+reversed list at ~120 ms), coloured `ember` orange.
- *  - verb picked at random once per agent run, rendered in `ember` orange with a 3-cell
- *    `emberShimmer` glimmer sweeping right→left (one cell every 200 ms, 10-cell run-out).
+ *    forward+reversed list at ~120 ms), coloured `claudio` orange.
+ *  - verb picked at random once per agent run, rendered in `claudio` orange with a 3-cell
+ *    `claudioShimmer` glimmer sweeping right→left (one cell every 200 ms, 10-cell run-out).
  *  - dim status group `([dialog waiting ·] <elapsed> · ↓ <tokens> tokens · thinking|running tool for Ns)`; the token count
  *    animates smoothly toward the real value (+3/+15%/+50 per 50 ms, like Claude).
  *  - terminal title `✳ pi` when idle, alternating `◐`/`◑` every 960 ms while working
@@ -26,8 +26,8 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { ANSI, FG, VERBS, bus, formatDuration, formatTokens, spinnerFrames } from "./shared.ts";
 
 // ── palette (from shared.ts) ────────────────────────────────────────────────────────────
-const EMBER = FG.ember;
-const EMBER_SHIMMER = FG.emberShimmer;
+const CLAUDIO = FG.claudio;
+const CLAUDIO_SHIMMER = FG.claudioShimmer;
 const FG_RESET = ANSI.fgReset;
 const DIM = ANSI.dim;
 const DIM_RESET = ANSI.boldDimReset;
@@ -44,7 +44,7 @@ const APP_NAME = "pi";
 const ELLIPSIS = "…";
 
 // ── module state ────────────────────────────────────────────────────────────────────────
-const WIDGET_KEY = "ember:spinner";
+const WIDGET_KEY = "claudio:spinner";
 
 let active = false; // between agent_start and agent_end
 let compacting = false; // Pi shows its own compaction row; hide ours meanwhile
@@ -105,7 +105,7 @@ function renderMessage(message: string, elapsedMs: number): string {
 	const center = width + GLIMMER_RUNOUT - (tick % span);
 	const lo = center - 1;
 	const hi = center + 1;
-	if (lo >= width || hi < 0) return `${EMBER}${message}${FG_RESET}`;
+	if (lo >= width || hi < 0) return `${CLAUDIO}${message}${FG_RESET}`;
 	let before = "";
 	let shimmer = "";
 	let after = "";
@@ -114,7 +114,7 @@ function renderMessage(message: string, elapsedMs: number): string {
 		else if (i > hi) after += ch;
 		else shimmer += ch;
 	});
-	return `${EMBER}${before}${EMBER_SHIMMER}${shimmer}${EMBER}${after}${FG_RESET}`;
+	return `${CLAUDIO}${before}${CLAUDIO_SHIMMER}${shimmer}${CLAUDIO}${after}${FG_RESET}`;
 }
 
 function renderRow(width: number, now: number): string {
@@ -122,7 +122,7 @@ function renderRow(width: number, now: number): string {
 	animateTokens(now);
 	// Claude swaps the random verb for the in-progress todo's activeForm ("Running tests…").
 	const message = bus.get("currentTodo")?.activeForm ?? verb;
-	const head = `${EMBER}${frameAt(elapsedMs)}${FG_RESET} ${renderMessage(message + ELLIPSIS, elapsedMs)}`;
+	const head = `${CLAUDIO}${frameAt(elapsedMs)}${FG_RESET} ${renderMessage(message + ELLIPSIS, elapsedMs)}`;
 	// `esc to interrupt` lives in the footer hint; the spinner carries
 	// [dialog waiting] · elapsed · ↓ tokens · thinking | running tool for Ns | ran tool for Ns.
 	const items: string[] = [];

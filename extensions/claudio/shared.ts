@@ -1,11 +1,12 @@
 /**
- * shared.ts — constants and helpers shared by every module of pi-ember (a UI inspired by Claude Code).
+ * shared.ts — constants and helpers shared by every module of pi-claudio (a UI inspired by Claude Code).
  *
  * Pure module: no side effects, no timers (only `getAgentDir` from pi-coding-agent and pi-tui width helpers).
  * Everything here is safe to import from any other module.
  */
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { existsSync, renameSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -16,8 +17,8 @@ import * as path from "node:path";
 export type Rgb = readonly [r: number, g: number, b: number];
 
 export const RGB = {
-	ember: [215, 119, 87],
-	emberShimmer: [235, 159, 127],
+	claudio: [215, 119, 87],
+	claudioShimmer: [235, 159, 127],
 	permission: [177, 185, 249],
 	permissionShimmer: [207, 215, 255],
 	suggestion: [177, 185, 249],
@@ -80,7 +81,7 @@ export function bgAnsi([r, g, b]: Rgb): string {
 	return `\x1b[48;2;${r};${g};${b}m`;
 }
 
-/** Ready-made foreground prefixes: `FG.ember + "●" + ANSI.fgReset`. */
+/** Ready-made foreground prefixes: `FG.claudio + "●" + ANSI.fgReset`. */
 export const FG = Object.fromEntries(
 	(Object.keys(RGB) as PaletteKey[]).map((k) => [k, fgAnsi(RGB[k])]),
 ) as Record<PaletteKey, string>;
@@ -122,8 +123,8 @@ export function strike(text: string): string {
 	return perLine(text, ANSI.strike, ANSI.strikeReset);
 }
 // Convenience colour shorthands (most used ones).
-export const ember = (t: string): string => fg("ember", t);
-export const emberShimmer = (t: string): string => fg("emberShimmer", t);
+export const claudio = (t: string): string => fg("claudio", t);
+export const claudioShimmer = (t: string): string => fg("claudioShimmer", t);
 export const permission = (t: string): string => fg("permission", t);
 export const suggestion = (t: string): string => fg("suggestion", t);
 export const autoAccept = (t: string): string => fg("autoAccept", t);
@@ -324,11 +325,28 @@ export function moreLines(n: number): string {
 // ───────────────────────────────────────────────────────────────────────────────
 
 /**
- * Directory for everything pi-ember persists (permission allow-lists, file checkpoints):
- * `~/.pi/agent/ember`. Never inside the package directory, so updates/reinstalls keep the state.
+ * Directory for everything pi-claudio persists (permission allow-lists, file checkpoints):
+ * `~/.pi/agent/claudio`. Never inside the package directory, so updates/reinstalls keep the state.
+ */
+let stateDirMigrated = false;
+
+/**
+ * Directory for everything pi-claudio persists (permission allow-lists, file checkpoints):
+ * `~/.pi/agent/claudio`. Never inside the package directory, so updates/reinstalls keep the state.
+ * On first call, the pre-0.3 directory `~/.pi/agent/ember` is renamed once if it exists and the new one does not.
  */
 export function stateDir(): string {
-	return path.join(getAgentDir(), "ember");
+	const dir = path.join(getAgentDir(), "claudio");
+	if (!stateDirMigrated) {
+		stateDirMigrated = true;
+		const legacy = path.join(getAgentDir(), "ember");
+		try {
+			if (existsSync(legacy) && !existsSync(dir)) renameSync(legacy, dir);
+		} catch {
+			/* leave the old directory in place; a fresh state dir is fine */
+		}
+	}
+	return dir;
 }
 
 /** Replace a leading home directory with `~`. */

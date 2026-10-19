@@ -10,7 +10,7 @@
  * - bypass:       approve everything
  *
  * "Don't ask again for <prefix> commands in <cwd>" is remembered for the session and persisted per cwd in
- * `~/.pi/agent/ember/permissions.json` (see shared.ts `stateDir`).
+ * `~/.pi/agent/claudio/permissions.json` (see shared.ts `stateDir`).
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -251,7 +251,7 @@ function wordHighlight(removed: string, added: string): [string, string] {
 }
 
 /** Render diff rows as `  <lineno> <marker>  <code>` lines with Claude's background colors, each exactly `width` cells. */
-export function renderEmberDiff(diff: string, width: number, maxRows = 24): string[] {
+export function renderClaudioDiff(diff: string, width: number, maxRows = 24): string[] {
 	const rows = parseDiffRows(diff);
 	const shown = rows.slice(0, maxRows);
 	const gutter = Math.max(1, ...shown.map((r) => r.lineNo.length));
@@ -361,7 +361,7 @@ function editSpec(path: string, edits: { oldText: string; newText: string }[], c
 		title: "Edit file",
 		subtitle: displayPath(path, cwd),
 		body: (w) => {
-			if (diff) return renderEmberDiff(diff, w);
+			if (diff) return renderClaudioDiff(diff, w);
 			if (old === undefined) return [errorText("  File not found")];
 			const lines: string[] = [];
 			for (const e of edits.slice(0, 3)) {
@@ -385,7 +385,7 @@ function writeSpec(path: string, content: string, cwd: string): DialogSpec {
 	return {
 		title: exists ? "Overwrite file" : "Create file",
 		subtitle: displayPath(path, cwd),
-		body: (w) => renderEmberDiff(diff, w),
+		body: (w) => renderClaudioDiff(diff, w),
 		question: `Do you want to ${exists ? "overwrite" : "create"} ${bold(name)}?`,
 		option2: "Yes, allow all edits during this session (shift+tab)",
 	};
@@ -534,7 +534,7 @@ export function setupPermissions(pi: ExtensionAPI): void {
 	});
 
 	// shift+tab: Pi reserves it for app.thinking.cycle; registering while reserved is skipped with a startup
-	// warning, so only register when keybindings.json freed it (`/ember setup` does that). Until then
+	// warning, so only register when keybindings.json freed it (`/claudio setup` does that). Until then
 	// /permissions + /plan remain as fallbacks.
 	if (shiftTabIsFree()) {
 		pi.registerShortcut("shift+tab", {

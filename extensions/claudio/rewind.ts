@@ -4,7 +4,7 @@
  * 1. File checkpoints: before `edit` / `write` (or any mutating tool with a `path` argument) runs,
  *    the file's current content (or "absent") is snapshotted, keyed by the user message that
  *    started the turn. Only the FIRST snapshot per (file, user turn) is kept — the pre-state.
- *    Snapshots live in memory and under `~/.pi/agent/ember/checkpoints/<sessionId>/<turnId>/` so a resumed
+ *    Snapshots live in memory and under `~/.pi/agent/claudio/checkpoints/<sessionId>/<turnId>/` so a resumed
  *    session can still rewind. Files over 2 MB are skipped.
  * 2. Picker (`ctx.ui.custom`, same dialog chrome as the permission prompt): the user messages on
  *    the current branch, newest first, then "Rewind to this message?" with

@@ -9,7 +9,7 @@
  *   (every line still goes to the log), and the exit always wakes. Each wake is a `bg-wake` custom
  *   message sent with `{ triggerTurn: true, deliverAs: "followUp" }`. The batching / wake logic is
  *   based on pi-bgwatch by Josep Reyero (MIT, github.com/josep-reyero/pi-bgwatch). Logs live in
- *   `$TMPDIR/pi-ember/<pi pid>/<id>/output.log` so several pi sessions never share a directory.
+ *   `$TMPDIR/pi-claudio/<pi pid>/<id>/output.log` so several pi sessions never share a directory.
  * - ctrl+b-backgrounded commands also wake the agent (bg-wake) when they exit.
  * - `bash_output` (incremental output + status) and `kill_shell` tools.
  * - `/tasks` (alias `/bashes`): Claude-style "Background tasks" dialog (view output / kill).
@@ -40,7 +40,7 @@ import { Type } from "typebox";
 import { ANSI, actions, bold, bus, dialogInnerWidth, dialogLines, dim, FG, formatDuration, moreLines, RESULT_INDENT } from "./shared.ts";
 
 // ── palette via shared.ts (raw truecolor) ───────────────────────────────
-const ORANGE = FG.ember;
+const ORANGE = FG.claudio;
 const GREEN = FG.success;
 const RED = FG.error;
 const PERM = FG.permission;
@@ -85,7 +85,7 @@ export interface WakeOptions {
 }
 
 /** Details shape of the overridden `bash` tool: the original shape plus an optional `background`. */
-export type EmberBashDetails = (BashToolDetails & { background?: BackgroundInfo }) | undefined;
+export type ClaudioBashDetails = (BashToolDetails & { background?: BackgroundInfo }) | undefined;
 
 /** Details of `bash_output` / `kill_shell` results. */
 export interface ShellToolDetails {
@@ -148,7 +148,7 @@ const MAX_OUTPUT_CHARS = 2 * 1024 * 1024; // keep at most 2 MiB per task in memo
 const MAX_LINES_PER_WAKE = 200;
 const DEFAULT_WAKE_DEBOUNCE_MS = 3000;
 /** Per pi process, so several sessions on one host never share a directory. */
-const WAKE_ROOT = join(tmpdir(), "pi-ember", String(process.pid));
+const WAKE_ROOT = join(tmpdir(), "pi-claudio", String(process.pid));
 let piApi: ExtensionAPI | undefined;
 
 function newId(): string {
@@ -554,7 +554,7 @@ export function setupBackground(pi: ExtensionAPI): void {
 		title: Type.Optional(Type.String({ description: "Short name for a background task, shown in wakes and in /tasks (defaults to the command)." })),
 	});
 
-	pi.registerTool<typeof params, EmberBashDetails>({
+	pi.registerTool<typeof params, ClaudioBashDetails>({
 		...original,
 		parameters: params,
 		description:
@@ -607,12 +607,12 @@ export function setupBackground(pi: ExtensionAPI): void {
 			}
 
 			let bgTask: BackgroundTask | undefined;
-			let resolveBackground: ((r: AgentToolResult<EmberBashDetails>) => void) | undefined;
-			const backgrounded = new Promise<AgentToolResult<EmberBashDetails>>((resolve) => {
+			let resolveBackground: ((r: AgentToolResult<ClaudioBashDetails>) => void) | undefined;
+			const backgrounded = new Promise<AgentToolResult<ClaudioBashDetails>>((resolve) => {
 				resolveBackground = resolve;
 			});
 
-			const wrappedUpdate: AgentToolUpdateCallback<EmberBashDetails> | undefined = (partial) => {
+			const wrappedUpdate: AgentToolUpdateCallback<ClaudioBashDetails> | undefined = (partial) => {
 				if (bgTask) {
 					// Snapshot of the full output so far (head-truncated by the original tool).
 					const text = partial.content
@@ -663,7 +663,7 @@ export function setupBackground(pi: ExtensionAPI): void {
 			const execution = getConfigured()
 				.execute(toolCallId, { command, timeout: args.timeout }, controller.signal, wrappedUpdate, ctx)
 				.then(
-					(result): AgentToolResult<EmberBashDetails> => {
+					(result): AgentToolResult<ClaudioBashDetails> => {
 						if (bgTask) {
 							const text = result.content
 								.filter((c): c is { type: "text"; text: string } => c.type === "text")
