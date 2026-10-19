@@ -1,7 +1,7 @@
 {
   "name": "pi-ember",
-  "version": "0.1.0",
-  "description": "A warm finish for pi — Claude Code-inspired look and feel: ● tool rows, spinner verbs, permission modes, background tasks, todos, rewind.",
+  "version": "0.2.0",
+  "description": "A warm finish for pi — Claude Code-inspired look and feel: ● tool rows, spinner verbs, permission modes, background tasks that wake the agent, PR watching, todos, rewind.",
   "type": "module",
   "keywords": ["pi-package", "pi", "theme", "ui", "claude-code"],
   "license": "MIT",

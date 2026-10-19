@@ -45,6 +45,8 @@ While the model works:
 - **Permission modes**: `bypass permissions` (default) → `plan` cycled with **shift+tab**; `/permissions <mode>` and `/plan` also work. In `default`/`acceptEdits` modes a dialog asks before shell commands, edits, writes and destructive/MCP tools, with "don't ask again for `<prefix>` commands in `<cwd>`" remembered per project. Plan mode blocks mutating tools and tells the model why.
 - **ctrl+o** expands/collapses all tool output.
 - **Background tasks**: `bash` gains `run_in_background`; `bash_output` and `kill_shell` tools; **ctrl+b** moves the running foreground command to the background; `/tasks` (alias `/bashes`) opens the task list; `↓` on an empty prompt opens it too. The footer shows `N background tasks`.
+- **Background commands that wake the agent**: `bash` with `wake: true` injects new output into the session as it arrives (batched, optionally regex-filtered) and on exit, triggering a turn — see [below](#background-commands-that-wake-the-agent).
+- **PR watching**: `pr_watch` wakes the agent when CI finishes or fails, a review or comment lands, or the PR is merged; `pr_status` gives a snapshot — see [PR watching](#pr-watching).
 - **`todo_write`** tool rendered as `● Update Todos` with a `☒`/`☐` checklist; the in-progress item's `activeForm` replaces the spinner verb.
 - **Esc Esc rewind** (or `/rewind`): pick an earlier user message and restore the conversation, the code (from per-turn file checkpoints taken before every edit/write), or both.
 - **`?`** on an empty prompt shows the shortcuts panel.
@@ -117,6 +119,79 @@ Everything pi-ember persists (permission allow-lists, file checkpoints) lives in
 | `acceptEdits` | Like `default`, but edits/writes are auto-approved. |
 
 shift+tab cycles `bypassPermissions ↔ plan`; `/permissions default` or `/permissions acceptEdits` selects the asking modes.
+
+## Background commands that wake the agent
+
+The `bash` tool takes `wake: true` (implies `run_in_background`). The command runs in the background and the agent is **woken** — a message is injected into the session and a turn starts — with each batch of new output lines and when the command exits. No polling, no `sleep` loops: the model starts the command, ends its turn, and acts when woken.
+
+| `bash` param | Meaning |
+|---|---|
+| `wake` | Wake the agent on new output and on exit. |
+| `wake_pattern` | Regex; only matching lines wake the agent. Every line still goes to the log. |
+| `wake_debounce_ms` | Batch window before a wake (default 3000; 0 = one wake per line). |
+| `title` | Short name shown in wakes and in `/tasks` (defaults to the command). |
+
+```
+● Bash(for i in 1 2 3; do echo tick $i; sleep 4; done)
+  ⎿  Running in the background · wakes on output and exit · ticker (down to manage)
+
+● Started the ticker task in the background. I'll be woken as output arrives and when it exits.
+
+● ticker · output
+  ⎿  tick 1
+
+● Got tick 1 from the ticker. Waiting for the rest.
+…
+● ticker · exited 0
+  ⎿  (no output)
+```
+
+Each wake is a `bg-wake` message whose text is `<title> output:` + lines (or `<title> exited N.`) followed by `Log: <path>`; it is delivered with `{ triggerTurn: true, deliverAs: "followUp" }`, so a wake that arrives mid-turn queues behind the current turn instead of interrupting it. At most 200 lines per wake; the rest is counted and pointed at the log. Logs live under `$TMPDIR/pi-ember/<pi pid>/<task id>/` (`command`, `output.log`, `exitcode`) so concurrent pi sessions never share files. Wake tasks appear in `/tasks` (tagged `wake`) and in the footer count; `kill_shell` stops them (the exit wakes the agent once more). Commands moved to the background with **ctrl+b** also wake the agent when they exit.
+
+The design and the batching logic follow [pi-bgwatch](https://github.com/josep-reyero/pi-bgwatch) by Josep Reyero (MIT) — pi-ember folds the same primitive into its existing background `bash` instead of adding a separate tool.
+
+## PR watching
+
+Built on the wake primitive above. The package ships `scripts/pr-watch` (python3 + `gh`), which polls a pull request every N seconds and prints **one line per change**:
+
+```
+CHECKS head=008aff7 ok=0 failing=0 pending=2
+CHECK_FAILED build https://github.com/o/r/actions/runs/123/job/456
+REVIEW alice CHANGES_REQUESTED Please split this up
+COMMENT bob src/foo.ts:42 nit: rename foo
+DECISION APPROVED
+STATE merged
+DONE ci passed
+```
+
+`pr-watch [--repo owner/name] [--pr N] [--interval 60] [--until first_event|ci_done|review|merged] [--log-failed] [--include-self]` — the PR is resolved from the current branch when omitted; events are deduplicated by id; your own comments are skipped unless `--include-self`; `--log-failed` appends the last 40 lines of `gh run view --log-failed` under a failed check. It exits 0 with `DONE <reason>` when the `--until` condition is met.
+
+Two tools wrap it:
+
+- **`pr_watch`** (`pr`, `repo`, `interval`, `until`, `log_failed`, `include_self`) starts `pr-watch` through `bash` with `wake: true`, title `PR #N` and a `wake_pattern` for the event lines. Rendered as `● PR Watch(#2 · every 15s)`; the wakes as `● PR #2 · output` / `● PR #2 · exited 0`. The model is told to offer it after `gh pr create`.
+- **`pr_status`** (`pr`, `repo`) is an immediate `gh` snapshot: title, state, checks summary with failed-check URLs, reviews, review decision and the latest comments. Rendered as `● PR Status(#2)`.
+
+```
+> watch PR 2, interval 15s, until ci_done
+
+● PR Watch(#2 · every 15s)
+  ⎿  Watching joanreyero/pi-ember-scratch#2 every 15s until ci done (task 1d6a8c)
+
+● Watching PR #2 every 15s; I'll report back when CI finishes.
+
+● PR #2 · output
+  ⎿  CHECKS head=008aff7 ok=0 failing=0 pending=2
+
+● CI on PR #2 has 2 checks pending, none failed yet. Still watching until they finish.
+
+● PR #2 · exited 0
+  ⎿  CHECKS head=008aff7 ok=2 failing=0 pending=0
+     DONE ci passed
+
+● CI passed on PR #2: 2/2 checks green. Watcher has stopped.
+```
+
+Requires the GitHub CLI (`gh auth login`) and python3.
 
 ## MCP
 

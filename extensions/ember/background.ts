@@ -4,6 +4,13 @@
  * - Overrides the built-in `bash` tool adding `run_in_background` (spawns a tracked shell and
  *   returns immediately with `Command running in background with ID: <id>`); the foreground path
  *   delegates to the original definition unchanged.
+ * - `wake: true` (implies run_in_background): the task's output wakes the agent. Lines are batched
+ *   (`wake_debounce_ms`, default 3 s), an optional `wake_pattern` regex selects the lines that wake
+ *   (every line still goes to the log), and the exit always wakes. Each wake is a `bg-wake` custom
+ *   message sent with `{ triggerTurn: true, deliverAs: "followUp" }`. The batching / wake logic is
+ *   based on pi-bgwatch by Josep Reyero (MIT, github.com/josep-reyero/pi-bgwatch). Logs live in
+ *   `$TMPDIR/pi-ember/<pi pid>/<id>/output.log` so several pi sessions never share a directory.
+ * - ctrl+b-backgrounded commands also wake the agent (bg-wake) when they exit.
  * - `bash_output` (incremental output + status) and `kill_shell` tools.
  * - `/tasks` (alias `/bashes`): Claude-style "Background tasks" dialog (view output / kill).
  * - ctrl+b: moves the currently running foreground bash to the background.
@@ -21,12 +28,16 @@ import {
 	createLocalBashOperations,
 	type ExtensionAPI,
 	type ExtensionContext,
+	keyText,
 	type Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { Component, Focusable, TUI } from "@earendil-works/pi-tui";
 import { matchesKey, Text, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { createWriteStream, mkdirSync, writeFileSync, type WriteStream } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Type } from "typebox";
-import { ANSI, actions, bus, dialogInnerWidth, dialogLines, FG, formatDuration } from "./shared.ts";
+import { ANSI, actions, bold, bus, dialogInnerWidth, dialogLines, dim, FG, formatDuration, moreLines, RESULT_INDENT } from "./shared.ts";
 
 // ── palette via shared.ts (raw truecolor) ───────────────────────────────
 const ORANGE = FG.ember;
@@ -46,6 +57,31 @@ export interface BackgroundInfo {
 	command: string;
 	/** true when the user pressed ctrl+b on a running foreground command */
 	byUser?: boolean;
+	/** true when the task wakes the agent on output / exit */
+	wake?: boolean;
+	title?: string;
+	logFile?: string;
+}
+
+/** `details` of the `bg-wake` custom message (one per batch of output / exit). */
+export interface BgWakeDetails {
+	id: string;
+	title: string;
+	command: string;
+	kind: "output" | "exit";
+	status: BackgroundStatus;
+	exitCode: number | null;
+	logFile?: string;
+	lines: string[];
+	dropped: number;
+}
+
+/** Options for a wake-enabled background task. */
+export interface WakeOptions {
+	title?: string;
+	/** Regex source; only matching lines wake the agent (all lines go to the log). */
+	pattern?: string;
+	debounceMs?: number;
 }
 
 /** Details shape of the overridden `bash` tool: the original shape plus an optional `background`. */
@@ -77,6 +113,24 @@ interface BackgroundTask {
 	byUser: boolean;
 	/** Set when the task was created from a foreground command (output comes from snapshots) */
 	snapshotDriven?: boolean;
+	/** Short name shown in wakes and in /tasks (defaults to the command). */
+	title: string;
+	/** Present when the task wakes the agent on output (and always on exit). */
+	wake?: WakeState;
+}
+
+/** Per-task wake state (debounced batches of lines; based on pi-bgwatch by Josep Reyero, MIT). */
+interface WakeState {
+	pattern?: RegExp;
+	debounceMs: number;
+	pending: string[];
+	dropped: number;
+	timer?: ReturnType<typeof setTimeout>;
+	/** Partial last line of the stream, waiting for its `\n`. */
+	lineBuf: string;
+	logFile: string;
+	log: WriteStream;
+	lines: number;
 }
 
 interface ForegroundRun {
@@ -91,6 +145,11 @@ interface ForegroundRun {
 const tasks = new Map<string, BackgroundTask>();
 const foreground = new Map<string, ForegroundRun>();
 const MAX_OUTPUT_CHARS = 2 * 1024 * 1024; // keep at most 2 MiB per task in memory
+const MAX_LINES_PER_WAKE = 200;
+const DEFAULT_WAKE_DEBOUNCE_MS = 3000;
+/** Per pi process, so several sessions on one host never share a directory. */
+const WAKE_ROOT = join(tmpdir(), "pi-ember", String(process.pid));
+let piApi: ExtensionAPI | undefined;
 
 function newId(): string {
 	let id = "";
@@ -113,6 +172,7 @@ function appendOutput(task: BackgroundTask, chunk: string): void {
 		task.output = task.output.slice(drop);
 		task.readOffset = Math.max(0, task.readOffset - drop);
 	}
+	if (task.wake) feedWake(task, task.wake, chunk);
 }
 
 function finishTask(task: BackgroundTask, status: BackgroundStatus, exitCode: number | null): void {
@@ -121,6 +181,109 @@ function finishTask(task: BackgroundTask, status: BackgroundStatus, exitCode: nu
 	task.exitCode = exitCode;
 	task.endedAt = Date.now();
 	publishCount();
+	const w = task.wake;
+	if (w) {
+		if (w.lineBuf) wakeLine(task, w, w.lineBuf);
+		w.lineBuf = "";
+		w.log.end();
+		try {
+			writeFileSync(join(WAKE_ROOT, task.id, "exitcode"), `${exitCode ?? 1}\n`);
+		} catch {
+			/* best effort */
+		}
+	}
+}
+
+// ── Wake-on-output (based on pi-bgwatch by Josep Reyero, MIT) ────────────────────────────────
+function createWake(task: BackgroundTask, opts: WakeOptions): WakeState {
+	const dir = join(WAKE_ROOT, task.id);
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(join(dir, "command"), `${task.command}\n`);
+	const logFile = join(dir, "output.log");
+	return {
+		pattern: opts.pattern ? new RegExp(opts.pattern) : undefined,
+		debounceMs: Math.max(0, opts.debounceMs ?? DEFAULT_WAKE_DEBOUNCE_MS),
+		pending: [],
+		dropped: 0,
+		lineBuf: "",
+		logFile,
+		log: createWriteStream(logFile, { flags: "w" }),
+		lines: 0,
+	};
+}
+
+function feedWake(task: BackgroundTask, w: WakeState, chunk: string): void {
+	w.lineBuf += chunk;
+	const parts = w.lineBuf.split("\n");
+	w.lineBuf = parts.pop() ?? "";
+	for (const line of parts) wakeLine(task, w, line.replace(/\r$/, ""));
+}
+
+function wakeLine(task: BackgroundTask, w: WakeState, line: string): void {
+	w.lines++;
+	w.log.write(`${line}\n`);
+	if (w.pattern && !w.pattern.test(line)) return;
+	if (w.pending.length >= MAX_LINES_PER_WAKE) w.dropped++;
+	else w.pending.push(line);
+	if (!w.timer) w.timer = setTimeout(() => sendWake(task, "output"), w.debounceMs);
+}
+
+/**
+ * The wake itself: flush the pending batch into a `bg-wake` message. Content (in the spirit of
+ * pi-bgwatch): `<title> output:` + lines, or `<title> exited N.` + remaining lines, then `Log: <path>`.
+ * `followUp` queues behind a running turn instead of interrupting it; `triggerTurn` starts one when idle.
+ */
+function sendWake(task: BackgroundTask, kind: "output" | "exit"): void {
+	const w = task.wake;
+	if (w?.timer) {
+		clearTimeout(w.timer);
+		w.timer = undefined;
+	}
+	const lines = w ? w.pending : [];
+	const dropped = w ? w.dropped : 0;
+	if (w) {
+		w.pending = [];
+		w.dropped = 0;
+	}
+	if (kind === "output" && lines.length === 0) return;
+	if (!piApi) return;
+
+	let content = task.title;
+	if (kind === "exit") {
+		content += task.status === "killed" ? " stopped." : ` exited ${task.exitCode ?? "?"}.`;
+	} else {
+		content += " output:";
+	}
+	if (lines.length > 0) {
+		content += `\n${lines.join("\n")}`;
+		if (dropped > 0) content += `\n... ${dropped} more line(s) in ${w?.logFile ?? "the log"}`;
+	} else if (kind === "exit" && !w) {
+		// ctrl+b task without a wake log: give the model the tail of what we have.
+		const tail = tailLines(task.output, 20);
+		if (tail.trim()) content += `\n${tail}`;
+	}
+	if (w) content += `\nLog: ${w.logFile}`;
+	else content += `\nShell id: ${task.id} (bash_output for the full output).`;
+
+	piApi.sendMessage(
+		{
+			customType: "bg-wake",
+			content,
+			display: true,
+			details: {
+				id: task.id,
+				title: task.title,
+				command: task.command,
+				kind,
+				status: task.status,
+				exitCode: task.exitCode,
+				logFile: w?.logFile,
+				lines: kind === "exit" && !w && lines.length === 0 ? tailLines(task.output, 20).split("\n").filter(Boolean) : lines,
+				dropped,
+			} satisfies BgWakeDetails,
+		},
+		{ triggerTurn: true, deliverAs: "followUp" },
+	);
 }
 
 function tailLines(text: string, n: number): string {
@@ -143,6 +306,8 @@ function statusText(task: BackgroundTask): string {
 
 // ── Model notification when a background task ends ─────────────────────────────────────────
 function notifyModel(pi: ExtensionAPI, task: BackgroundTask): void {
+	// Wake-enabled and ctrl+b tasks wake the agent with a `bg-wake` (the exit always wakes).
+	if (task.wake || task.byUser) return sendWake(task, "exit");
 	const verb =
 		task.status === "completed"
 			? "completed"
@@ -168,7 +333,13 @@ function notifyModel(pi: ExtensionAPI, task: BackgroundTask): void {
 }
 
 // ── Spawning a detached background task ────────────────────────────────────────────────────
-function startBackgroundTask(pi: ExtensionAPI, command: string, cwd: string, timeoutSeconds: number | undefined): BackgroundTask {
+/**
+ * Start a tracked background shell. With `wake` the task wakes the agent on output (debounced,
+ * optionally filtered) and on exit. Exported for thin wrappers such as `pr_watch` (pr.ts).
+ * Throws on an invalid `wake.pattern`.
+ */
+export function startBackgroundTask(pi: ExtensionAPI, command: string, cwd: string, timeoutSeconds: number | undefined, wake?: WakeOptions): BackgroundTask {
+	piApi = pi;
 	const settings = pi.getSettings();
 	const ops = createLocalBashOperations({ shellPath: settings.shellPath });
 	const prefix = settings.shellCommandPrefix;
@@ -184,7 +355,9 @@ function startBackgroundTask(pi: ExtensionAPI, command: string, cwd: string, tim
 		readOffset: 0,
 		controller: new AbortController(),
 		byUser: false,
+		title: wake?.title?.trim() || command,
 	};
+	if (wake) task.wake = createWake(task, wake);
 	tasks.set(task.id, task);
 	publishCount();
 	void ops
@@ -213,6 +386,17 @@ function killTask(task: BackgroundTask): void {
 	task.controller.abort();
 	// The snapshot-driven case has no exec promise of our own; mark it directly.
 	if (task.snapshotDriven) finishTask(task, "killed", null);
+}
+
+/** Model-facing text returned by `bash` when a wake task starts. */
+function wakeStartedText(task: BackgroundTask, pattern: string | undefined): string {
+	const w = task.wake!;
+	return (
+		`Started background task ${task.id}: ${task.title}\n` +
+		`Log: ${w.logFile}` +
+		(pattern ? `\nWaking on lines matching /${pattern}/ (every line is still logged).` : "") +
+		`\nYou will be woken when output arrives (batched ${w.debounceMs}ms) and when it exits. End your turn now; do not poll bash_output.`
+	);
 }
 
 // ── The /tasks dialog ──────────────────────────────────────────────────────────────────────
@@ -263,7 +447,7 @@ class BackgroundTasksDialog implements Component, Focusable {
 			const t = list[this.selected];
 			if (t && t.status !== "running") {
 				tasks.delete(t.id);
-				startBackgroundTask(this.pi, t.command, t.cwd, undefined);
+				startBackgroundTask(this.pi, t.command, t.cwd, undefined, t.wake ? { title: t.title, pattern: t.wake.pattern?.source, debounceMs: t.wake.debounceMs } : undefined);
 				this.selected = 0;
 			}
 		} else if (data === "d") {
@@ -285,8 +469,9 @@ class BackgroundTasksDialog implements Component, Focusable {
 
 		if (this.viewing) {
 			const t = this.viewing;
-			body.push(`  ${this.theme.bold(truncateToWidth(t.command, inner - 2))}`);
+			body.push(`  ${this.theme.bold(truncateToWidth(t.title !== t.command ? `${t.title} · ${t.command}` : t.command, inner - 2))}`);
 			body.push(`  ${statusText(t)} ${DIM}· ${formatDuration((t.endedAt ?? Date.now()) - t.startedAt)} · ${t.cwd}${ATTR_RESET}`);
+			if (t.wake) body.push(`  ${DIM}wakes the agent on ${t.wake.pattern ? `/${t.wake.pattern.source}/` : "output"} · ${t.wake.lines} lines · ${t.wake.logFile}${ATTR_RESET}`);
 			body.push("");
 			const text = t.output.length ? tailLines(t.output, 15) : "(no output)";
 			const maxRows = 15;
@@ -304,10 +489,10 @@ class BackgroundTasksDialog implements Component, Focusable {
 				const nameWidth = Math.max(12, Math.min(40, inner - 30));
 				list.forEach((t, i) => {
 					const sel = i === this.selected;
-					const name = truncateToWidth(t.command.replace(/\s+/g, " "), nameWidth, "…", true);
+					const name = truncateToWidth(t.title.replace(/\s+/g, " "), nameWidth, "…", true);
 					const elapsed = formatDuration((t.endedAt ?? Date.now()) - t.startedAt).padEnd(6);
 					const status = truncateToWidth(statusText(t), 13, "…", true);
-					body.push(`${sel ? `${PERM}❯ ${name}${FG_RESET}` : `  ${name}`}  ${status}  ${DIM}${elapsed}  shell${ATTR_RESET}`);
+					body.push(`${sel ? `${PERM}❯ ${name}${FG_RESET}` : `  ${name}`}  ${status}  ${DIM}${elapsed}  ${t.wake ? "wake" : "shell"}${ATTR_RESET}`);
 				});
 			}
 			body.push("");
@@ -319,6 +504,7 @@ class BackgroundTasksDialog implements Component, Focusable {
 
 // ── Setup ──────────────────────────────────────────────────────────────────────────────────
 export function setupBackground(pi: ExtensionAPI): void {
+	piApi = pi;
 	bus.set("backgroundTaskCount", 0);
 
 	// Metadata (name, description, outputSchema…) comes from an unconfigured definition; the one
@@ -352,6 +538,20 @@ export function setupBackground(pi: ExtensionAPI): void {
 					"Set to true to run this command in the background. Use bash_output to read the output later.",
 			}),
 		),
+		wake: Type.Optional(
+			Type.Boolean({
+				description:
+					"Wake the agent when new output arrives and when the command exits; implies run_in_background. " +
+					"Use for watchers, test loops, log tails, pollers: start it, end your turn, act when woken.",
+			}),
+		),
+		wake_pattern: Type.Optional(
+			Type.String({ description: "Regex; with wake=true only matching lines wake the agent (every line is still written to the log)." }),
+		),
+		wake_debounce_ms: Type.Optional(
+			Type.Number({ description: "With wake=true, batch window in ms before a wake (default 3000; 0 = one wake per line)." }),
+		),
+		title: Type.Optional(Type.String({ description: "Short name for a background task, shown in wakes and in /tasks (defaults to the command)." })),
 	});
 
 	pi.registerTool<typeof params, EmberBashDetails>({
@@ -361,13 +561,34 @@ export function setupBackground(pi: ExtensionAPI): void {
 			`${original.description}\n\n` +
 			"Long-running commands (dev servers, watchers, slow builds/tests) can be started with run_in_background=true; " +
 			"the call returns at once with a shell ID. Read its output with bash_output and stop it with kill_shell. " +
-			"Never use `&`, `nohup` or `sleep`-polling to background a command yourself.",
+			"Never use `&`, `nohup` or `sleep`-polling to background a command yourself.\n\n" +
+			"wake=true makes the background command wake you: each batch of new output lines (debounced wake_debounce_ms, " +
+			"default 3 s) is injected into the session and triggers a turn; wake_pattern (regex) selects which lines wake you; " +
+			"the exit always wakes you. Never busy-wait: start it, end your turn, act when woken. " +
+			"After `gh pr create`, offer to watch the PR with the pr_watch tool.",
 		async execute(toolCallId, args, signal, onUpdate, ctx) {
 			const cwd = ctx.cwd || process.cwd();
 			const command = args.command;
 
+			if (args.wake) {
+				let task: BackgroundTask;
+				try {
+					task = startBackgroundTask(pi, command, cwd, args.timeout, { title: args.title, pattern: args.wake_pattern, debounceMs: args.wake_debounce_ms });
+				} catch (e) {
+					const msg = `Invalid wake_pattern: ${e instanceof Error ? e.message : String(e)}`;
+					return { content: [{ type: "text", text: msg }], details: undefined, isError: true };
+				}
+				const text = wakeStartedText(task, args.wake_pattern);
+				return {
+					content: [{ type: "text", text }],
+					details: { background: { id: task.id, command, wake: true, title: task.title, logFile: task.wake?.logFile } },
+					structuredContent: { output: text, truncated: false, exit_code: 0, wall_time_seconds: 0 },
+				};
+			}
+
 			if (args.run_in_background) {
-				const task = startBackgroundTask(pi, command, cwd, args.timeout);
+				const task = startBackgroundTask(pi, command, cwd, args.timeout, undefined);
+				if (args.title?.trim()) task.title = args.title.trim();
 				const text = `Command running in background with ID: ${task.id}. Use bash_output with bash_id "${task.id}" to read its output; you will be notified when it completes.`;
 				return {
 					content: [{ type: "text", text }],
@@ -423,6 +644,7 @@ export function setupBackground(pi: ExtensionAPI): void {
 						controller,
 						byUser: true,
 						snapshotDriven: true,
+						title: command,
 					};
 					tasks.set(bgTask.id, bgTask);
 					publishCount();
@@ -562,6 +784,28 @@ export function setupBackground(pi: ExtensionAPI): void {
 		},
 	});
 
+	// ── Transcript rows for wakes: `● <title> · output` / `● <title> · exited 0`, then ⎿ lines ──
+	pi.registerMessageRenderer<BgWakeDetails>("bg-wake", (msg, opts) => {
+		const d = msg.details;
+		if (!d) return new Text(dim(`● ${typeof msg.content === "string" ? msg.content.split("\n")[0] : "background task"}`), 0, 0);
+		const pad = " ".repeat(opts.outputPad);
+		const status =
+			d.kind === "output"
+				? `${ORANGE}●${FG_RESET} ${bold(d.title)} · output`
+				: d.status === "killed"
+					? `${DIM}●${ATTR_RESET} ${bold(d.title)} · stopped`
+					: `${d.exitCode === 0 ? GREEN : RED}●${FG_RESET} ${bold(d.title)} · exited ${d.exitCode ?? "?"}`;
+		const all = d.lines.map((l) => l.replace(/\t/g, "    "));
+		const max = 8;
+		const shown = opts.expanded ? all : all.slice(0, max);
+		const hidden = all.length - shown.length + d.dropped;
+		const rows = [...shown];
+		if (hidden > 0) rows.push(dim(`${moreLines(hidden)} (${keyText("app.tools.expand")} to expand)`));
+		if (rows.length === 0) rows.push(dim(d.kind === "exit" ? "(no output)" : ""));
+		if (opts.expanded && d.logFile) rows.push(dim(`Log: ${d.logFile}`));
+		return new WakeRow(pad, status, rows);
+	});
+
 	// ── Transcript row for the completion notification ──
 	pi.registerMessageRenderer<ShellToolDetails>("background_task_done", (msg, _opts, theme) => {
 		const d = msg.details;
@@ -615,8 +859,35 @@ export function setupBackground(pi: ExtensionAPI): void {
 	// ── Cleanup ──
 	pi.on("session_shutdown", () => {
 		actions.openTasks = undefined;
-		for (const t of tasks.values()) if (t.status === "running") t.controller.abort();
+		for (const t of tasks.values()) {
+			if (t.status === "running") t.controller.abort();
+			if (t.wake?.timer) clearTimeout(t.wake.timer);
+		}
 	});
+}
+
+/** `● title · status` followed by `  ⎿  line` rows (continuations indented 5), wrapped to the width. */
+class WakeRow implements Component {
+	constructor(
+		private readonly pad: string,
+		private readonly head: string,
+		private readonly rows: string[],
+	) {}
+	invalidate(): void {}
+	render(width: number): string[] {
+		const out = [truncateToWidth(`${this.pad}${this.head}`, width, "…")];
+		const inner = Math.max(10, width - this.pad.length - RESULT_INDENT.length);
+		let first = true;
+		for (const row of this.rows) {
+			const pieces = wrapTextWithAnsi(row, inner);
+			if (pieces.length === 0) pieces.push("");
+			for (const piece of pieces) {
+				out.push(truncateToWidth(`${this.pad}${first ? `  ${dim("⎿")}  ` : RESULT_INDENT}${piece}`, width));
+				first = false;
+			}
+		}
+		return out;
+	}
 }
 
 /** Read-only view for other modules (footer, status) — prefer the bus for the count. */

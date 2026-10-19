@@ -60,6 +60,8 @@ interface RowState {
 	status?: RowStatus;
 	startedAt?: number;
 	timer?: ReturnType<typeof setInterval>;
+	/** Call-row argument text learnt from the result (e.g. the PR number resolved from the branch). */
+	label?: string;
 }
 
 type AnyResult = AgentToolResult<any>;
@@ -383,6 +385,8 @@ interface BackgroundDetails {
 	status?: string;
 	exitCode?: number;
 	byUser?: boolean;
+	wake?: boolean;
+	title?: string;
 }
 
 function backgroundOf(details: unknown): BackgroundDetails | undefined {
@@ -417,9 +421,11 @@ function bashRenderers(label: string): ToolRenderers {
 				const line =
 					bg.status === "completed" || bg.status === "done"
 						? "Done"
-						: bg.byUser && id
-							? `Command running in background (shell id: ${id})`
-							: "Running in the background (down to manage)";
+						: bg.wake
+							? `Running in the background · wakes on output and exit${bg.title && bg.title !== str((ctx.args as Rec | undefined)?.command) ? ` · ${bg.title}` : ""} (down to manage)`
+							: bg.byUser && id
+								? `Command running in background (shell id: ${id})`
+								: "Running in the background (down to manage)";
 				c.set((w) => resultLines(w, ctx.outputPad, [dim(line)]));
 				return c;
 			}
@@ -1006,6 +1012,60 @@ function genericRenderers(toolName: string): ToolRenderers {
 	};
 }
 
+// ───────────────────────────── PR tools (pr.ts) ─────────────────────────────
+
+const PR_TOOL_NAMES: Record<string, string> = { pr_status: "PR Status", pr_watch: "PR Watch" };
+
+interface PrDetails {
+	number?: number;
+	interval?: number;
+	summary?: string[];
+	full?: string[];
+}
+
+/** `#123` (from the result once resolved, else the args) plus `· every 60s` for pr_watch. */
+function prLabel(toolName: string, rawArgs: unknown, details: PrDetails | undefined): string {
+	const a = (rawArgs ?? {}) as Rec;
+	const n = details?.number ?? num(a.pr);
+	let head = n !== undefined ? `#${n}` : "current branch";
+	if (toolName === "pr_watch") head += ` · every ${details?.interval ?? num(a.interval) ?? 60}s`;
+	return head;
+}
+
+function prRenderers(toolName: string): ToolRenderers {
+	const name = PR_TOOL_NAMES[toolName] ?? displayName(toolName);
+	return {
+		renderShell: "self",
+		renderCall(rawArgs: unknown, _theme: Theme, ctx: RenderCtx<RowState>) {
+			startTimer(ctx);
+			const c = lazy(ctx);
+			c.set((w) => callLines(w, ctx.outputPad, statusOf(ctx), name, ctx.state.label ?? prLabel(toolName, rawArgs, undefined)));
+			return c;
+		},
+		renderResult(result: AgentToolResult<PrDetails | undefined>, options: ToolRenderResultOptions, _theme: Theme, ctx: RenderCtx<RowState>) {
+			markStatus(ctx, options);
+			tickWhilePartial(ctx, options.isPartial);
+			const c = lazy(ctx);
+			const d = result.details;
+			if (d?.number !== undefined) ctx.state.label = prLabel(toolName, ctx.args, d);
+			const raw = textOf(result, ctx.showImages);
+			c.set((w) => {
+				if (options.isPartial) return resultLines(w, ctx.outputPad, [dim(`Asking GitHub… ${elapsed(ctx)}`.trim())]);
+				if (ctx.isError) return resultLines(w, ctx.outputPad, errorLines(d?.summary?.[0] ?? raw));
+				const summary = d?.summary ?? raw.trim().split("\n").slice(0, PREVIEW_LINES);
+				const full = d?.full ?? [];
+				if (!options.expanded || full.length === 0) {
+					const lines = [...summary];
+					if (full.length) lines.push(moreLinesHint(full.length));
+					return resultLines(w, ctx.outputPad, lines);
+				}
+				return resultLines(w, ctx.outputPad, [...summary, ...full.map((l) => (l.startsWith("  ") ? dim(l) : l))]);
+			});
+			return c;
+		},
+	};
+}
+
 // ───────────────────────────── Registration ─────────────────────────────
 
 export function setupToolRenderers(pi: ExtensionAPI): void {
@@ -1032,6 +1092,7 @@ export function setupToolRenderers(pi: ExtensionAPI): void {
 				return _next();
 			default:
 				if (TASK_TOOLS.has(toolName)) return taskRenderers(toolName);
+				if (toolName in PR_TOOL_NAMES) return prRenderers(toolName);
 				return genericRenderers(toolName);
 		}
 	});

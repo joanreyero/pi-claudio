@@ -10,9 +10,10 @@ pi-ember is a single Pi extension (`extensions/ember/index.ts` + modules) plus a
 | `shared.ts` | Palette, ANSI helpers, glyphs, verbs, formatting, `stateDir()`, the cross-module state **bus** (`permissionMode`, `backgroundTaskCount`, `currentTodo`, `toolsExpanded`, `dialog`) and `actions` (openTasks/openRewind), `dialogLines()` chrome. Pure: no timers, no side effects. |
 | `setup.ts` | `/ember setup` and `/ember status`; the startup hint; `shiftTabIsFree()`. |
 | `permissions.ts` | Permission modes, `tool_call` gate, permission dialog, `/permissions`, `/plan`, shift+tab shortcut. Persists allow-lists to `~/.pi/agent/ember/permissions.json`. |
-| `background.ts` | Overrides `bash` with `run_in_background`, adds `bash_output` / `kill_shell`, `/tasks`, ctrl+b, the tasks dialog. |
+| `background.ts` | Overrides `bash` with `run_in_background` and `wake` / `wake_pattern` / `wake_debounce_ms` / `title` (wake-on-output: debounced batches → `bg-wake` messages with `triggerTurn` + `followUp`, logs under `$TMPDIR/pi-ember/<pid>/<id>/`; after pi-bgwatch by Josep Reyero), adds `bash_output` / `kill_shell`, `/tasks`, ctrl+b (its exit also wakes), the tasks dialog and the `bg-wake` message renderer. Exports `startBackgroundTask` for thin wrappers. |
+| `pr.ts` | `pr_watch` (starts `scripts/pr-watch` as a wake task; script path resolved from `import.meta.url` so the git install works) and `pr_status` (a `gh` snapshot). No polling lives in the extension: all PR logic is in the script. |
 | `todo.ts` | `todo_write` tool + checklist rendering; publishes `currentTodo`. |
-| `tools.ts` | Tool renderers (`registerToolRenderer`, `renderShell: "self"`) for read/bash/edit/write/grep/find/ls/Task/generic/MCP. |
+| `tools.ts` | Tool renderers (`registerToolRenderer`, `renderShell: "self"`) for read/bash/edit/write/grep/find/ls/Task/pr_watch/pr_status/generic/MCP. |
 | `rewind.ts` | File checkpoints before mutating tool calls (`~/.pi/agent/ember/checkpoints/<session>/<turn>/`), `/rewind` picker. |
 | `spinner.ts` | Working indicator widget (`aboveEditor`), token animation, terminal title. |
 | `messages.ts` | Markdown transformers (`> ` user prefix, `● ` assistant prefix), hidden thinking label. |
@@ -32,6 +33,7 @@ Conventions: each module exports `setupXxx(pi: ExtensionAPI)`; per-module state 
 - Blocking tool calls: `pi.on("tool_call", ...)` → `{ block: true, reason, terminate?: true }`. `terminate: true` ends the turn cleanly (no abort message). Dialogs: `ctx.ui.custom((tui, theme, kb, done) => Component, { overlay: false })` replaces the editor.
 - Reaching a command context from a key handler: `pi.sendUserMessage("/rewind", { expandPromptTemplates: true })` — the only way to get `ctx.navigateTree`. The `/rewind` text does not appear in the transcript.
 - MCP tools are named `mcp__<server>__<tool>`; `pi.getAllTools()` exposes their annotations (`readOnlyHint`, `destructiveHint`, …) for the permission gate.
+- `pi.sendMessage(msg, { triggerTurn: true, deliverAs: "followUp" })` starts a turn when idle and queues behind the current turn when streaming — the right mode for background wakes. Custom messages render through `pi.registerMessageRenderer(customType, (msg, { expanded, outputPad }, theme) => Component)`; `expanded` follows ctrl+o.
 - Package resources: `extensions/<dir>/index.ts` and `themes/*.json` are discovered without a `pi` manifest. Local packages are identified by absolute path; state must never live inside the package dir (`stateDir()` → `~/.pi/agent/ember`).
 
 ## Pi limits that remain visible
@@ -79,4 +81,5 @@ npm i -D typescript @types/node @earendil-works/pi-coding-agent
 - Typecheck: `cd ~/.cache/pi-typecheck && npx tsc -p tsconfig.json` (must print nothing, exit 0).
 - Load smoke test: `cd /tmp && pi -p --no-session "say hi"`.
 - Visual snapshot through tmux (`scripts/pi-snap.sh`): `scripts/pi-snap.sh -w 100 -h 40 -t 30 "read /etc/hostname and reply in 3 words"`. Extension load errors show on the startup screen, so always check the snapshot after edits. Cheap prompts that exercise tools: `read /etc/hostname`, `run ls /tmp | head -3`, `create /tmp/x.txt with 3 lines then edit line 2`. `PI_SNAP_ANSI=1` also saves the coloured pane to `/tmp/pi-snap-ansi.txt`.
-- Try the package from a checkout without installing: `pi -e /path/to/pi-ember`.
+- Try the package from a checkout without installing: `pi -e /path/to/pi-ember` (note: the installed package loads too; for tmux tests of the working tree, temporarily symlink `~/.pi/agent/git/github.com/joanreyero/pi-ember` to the checkout).
+- Wake test: in tmux ask "run `for i in 1 2 3; do echo tick $i; sleep 4; done` in the background with wake=true" and capture the pane after ~30 s: the `●` row appears at once, then `● <title> · output` / `· exited 0` rows with the agent's replies. PR test: a scratch repo with a trivial workflow, `gh pr create`, then "watch PR N, interval 15s, until ci_done"; `scripts/pr-watch --pr N --interval 10 --until ci_done` can be dry-run directly.

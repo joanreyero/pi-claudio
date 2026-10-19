@@ -1,0 +1,188 @@
+#!/usr/bin/env python3
+"""pr-watch — poll a GitHub pull request and print ONE machine-friendly line per change.
+
+Meant to run under pi-ember's `bash … wake=true` (see the `pr_watch` tool), whose wake_pattern
+picks these lines up and wakes the agent. Needs only `gh` (authenticated) and python3.
+
+Lines:
+  CHECKS head=<sha> ok=N failing=N pending=N        whenever the check counts or head change
+  CHECK_FAILED <name> <url>                         once per failed check (with --log-failed, followed
+                                                    by `  | ` lines: the tail of `gh run view --log-failed`)
+  REVIEW <author> <APPROVED|CHANGES_REQUESTED|COMMENTED> <first line>
+  COMMENT <author> [<path>:<line>] <body first 200 chars>   (review + issue comments; not your own unless --include-self)
+  DECISION <reviewDecision>                         when it changes (APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED)
+  STATE merged|closed
+  DONE <reason>                                     then exit 0, when --until is met
+
+Usage: pr-watch [--repo owner/name] [--pr N] [--interval 60] [--until first_event|ci_done|review|merged] [--log-failed] [--include-self]
+The PR is resolved from the current branch when --pr is omitted; the repo from the cwd when --repo is omitted.
+"""
+import argparse
+import json
+import subprocess
+import sys
+import time
+
+UNTIL = ("first_event", "ci_done", "review", "merged")
+MAX_ERRORS = 5
+
+
+def gh(*args, check=True):
+    p = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60)
+    if check and p.returncode != 0:
+        raise RuntimeError((p.stderr or p.stdout).strip().splitlines()[0] if (p.stderr or p.stdout).strip() else f"gh {args[0]} failed")
+    return p.stdout
+
+
+def gh_json(*args):
+    out = gh(*args).strip()
+    return json.loads(out) if out else None
+
+
+def gh_list(path):
+    """All items of a paginated list endpoint (`--slurp` wraps the pages in one array)."""
+    pages = gh_json("api", "--paginate", "--slurp", path) or []
+    return [item for page in pages for item in (page if isinstance(page, list) else [page])]
+
+
+def say(line):
+    print(line.replace("\n", " ").strip(), flush=True)
+
+
+def first_line(s, n=200):
+    s = " ".join((s or "").split())
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--repo")
+    ap.add_argument("--pr", type=int)
+    ap.add_argument("--interval", type=int, default=60)
+    ap.add_argument("--until", choices=UNTIL, default="first_event")
+    ap.add_argument("--log-failed", action="store_true")
+    ap.add_argument("--include-self", action="store_true", help="also report your own reviews and comments")
+    a = ap.parse_args()
+
+    repo = a.repo or gh_json("repo", "view", "--json", "nameWithOwner")["nameWithOwner"]
+    pr = a.pr or gh_json("pr", "view", "--json", "number")["number"]
+    me = ""
+    if not a.include_self:
+        try:
+            me = gh("api", "user", "-q", ".login").strip()
+        except Exception:
+            pass
+    base = f"-R{repo}"
+    api = f"repos/{repo}"
+
+    seen_reviews, seen_comments, seen_failed = set(), set(), set()
+    last_checks = last_decision = None
+    first = True  # the first poll only records the baseline (no REVIEW/COMMENT for history)
+    had_event = review_seen = False
+    errors = 0
+
+    while True:
+        try:
+            view = gh_json("pr", "view", str(pr), base, "--json", "state,headRefOid,reviewDecision,mergedAt")
+            raw_checks = gh("pr", "checks", str(pr), base, "--json", "name,state,bucket,link", check=False).strip()
+            checks = json.loads(raw_checks) if raw_checks.startswith("[") else []
+            reviews = gh_list(f"{api}/pulls/{pr}/reviews")
+            comments = gh_list(f"{api}/pulls/{pr}/comments") + gh_list(f"{api}/issues/{pr}/comments")
+            errors = 0
+        except Exception as e:
+            errors += 1
+            say(f"ERROR {e}")
+            if errors >= MAX_ERRORS:
+                say("DONE too many errors")
+                return 1
+            time.sleep(a.interval)
+            continue
+
+        event = False
+        head = (view.get("headRefOid") or "")[:7]
+        ok = sum(1 for c in checks if c.get("bucket") == "pass")
+        failing = sum(1 for c in checks if c.get("bucket") in ("fail", "cancel"))
+        pending = sum(1 for c in checks if c.get("bucket") == "pending")
+        summary = (head, ok, failing, pending)
+        if summary != last_checks:
+            # The baseline (first poll) CHECKS line is printed only when it is useful: CI still running,
+            # or the caller cares about CI (first_event / ci_done).
+            if not first or (checks and (pending or a.until in ("first_event", "ci_done"))):
+                say(f"CHECKS head={head} ok={ok} failing={failing} pending={pending}")
+            if not first:
+                event = True
+            last_checks = summary
+        for c in checks:
+            if c.get("bucket") in ("fail", "cancel"):
+                key = (head, c.get("name"), c.get("link"))
+                if key in seen_failed:
+                    continue
+                seen_failed.add(key)
+                event = True
+                say(f"CHECK_FAILED {c.get('name')} {c.get('link') or ''}")
+                if a.log_failed and "/actions/runs/" in (c.get("link") or ""):
+                    run_id = c["link"].split("/actions/runs/")[1].split("/")[0]
+                    log = gh("run", "view", run_id, base, "--log-failed", check=False)
+                    for l in log.rstrip().splitlines()[-40:]:
+                        say(f"  | {l}")
+
+        for r in reviews:
+            rid = r.get("id")
+            if rid in seen_reviews or r.get("state") == "PENDING":
+                continue
+            seen_reviews.add(rid)
+            if first:
+                continue
+            author = (r.get("user") or {}).get("login", "?")
+            if author == me:
+                continue
+            event = review_seen = True
+            say(f"REVIEW {author} {r.get('state')} {first_line(r.get('body'))}")
+
+        for c in sorted(comments, key=lambda c: c.get("created_at") or ""):
+            cid = c.get("id")
+            if cid in seen_comments:
+                continue
+            seen_comments.add(cid)
+            if first:
+                continue
+            author = (c.get("user") or {}).get("login", "?")
+            if author == me:
+                continue
+            event = review_seen = True
+            loc = f" {c['path']}:{c.get('line') or c.get('original_line') or '?'}" if c.get("path") else ""
+            say(f"COMMENT {author}{loc} {first_line(c.get('body'))}")
+
+        decision = view.get("reviewDecision") or ""
+        if decision != last_decision:
+            if not first and decision:
+                say(f"DECISION {decision}")
+                event = review_seen = True
+            last_decision = decision
+
+        state = (view.get("state") or "").lower()
+        if state in ("merged", "closed"):
+            say(f"STATE {state}")
+            say(f"DONE {state}")
+            return 0
+
+        had_event = had_event or event
+        ci_done = bool(checks) and pending == 0
+        if a.until == "first_event" and had_event:
+            say("DONE first event")
+            return 0
+        if a.until == "ci_done" and ci_done:
+            say(f"DONE ci {'failed' if failing else 'passed'}")
+            return 0
+        if a.until == "review" and review_seen:
+            say("DONE review")
+            return 0
+        first = False
+        time.sleep(a.interval)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main() or 0)
+    except KeyboardInterrupt:
+        sys.exit(130)
