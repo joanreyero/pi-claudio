@@ -130,6 +130,8 @@ interface WakeState {
 	lineBuf: string;
 	logFile: string;
 	log: WriteStream;
+	/** Set when the log stream failed (ENOSPC, EACCES, …); nothing is written after that. */
+	logError?: string;
 	lines: number;
 }
 
@@ -145,6 +147,7 @@ interface ForegroundRun {
 const tasks = new Map<string, BackgroundTask>();
 const foreground = new Map<string, ForegroundRun>();
 const MAX_OUTPUT_CHARS = 2 * 1024 * 1024; // keep at most 2 MiB per task in memory
+const MAX_RESULT_CHARS = 50 * 1024; // largest bash_output result (same ballpark as the bash tool's 50 KB)
 const MAX_LINES_PER_WAKE = 200;
 const DEFAULT_WAKE_DEBOUNCE_MS = 3000;
 /** Per pi process, so several sessions on one host never share a directory. */
@@ -175,6 +178,38 @@ function appendOutput(task: BackgroundTask, chunk: string): void {
 	if (task.wake) feedWake(task, task.wake, chunk);
 }
 
+/** Longest anchor (start of the snapshot) used to find where it overlaps the already-read output. */
+const SNAPSHOT_ANCHOR_CHARS = 256;
+const SNAPSHOT_ANCHOR_TRIES = 64;
+
+/**
+ * Replace `output` with a snapshot from the foreground bash tool (which keeps only the tail once it
+ * exceeds its limits) and move `readOffset` so bash_output keeps returning exactly the unread part.
+ * The snapshot is a suffix of the full stream, so the already-read text either prefixes it (append-only),
+ * overlaps its start (rotated into the read window) or fell off entirely (everything left is new).
+ */
+export function setSnapshot(task: { output: string; readOffset: number }, text: string): void {
+	const read = task.output.slice(0, task.readOffset);
+	if (!text.startsWith(read)) {
+		let overlap = 0;
+		// The bash tool truncates at line boundaries, so the snapshot's first line (if any) is the anchor.
+		const nl = text.indexOf("\n");
+		const anchor = text.slice(0, Math.min(SNAPSHOT_ANCHOR_CHARS, nl >= 0 ? nl + 1 : text.length));
+		if (anchor) {
+			// Longest suffix of `read` that is a prefix of `text`: try each place the anchor occurs in `read`.
+			let tries = 0;
+			for (let i = read.indexOf(anchor); i >= 0 && tries++ < SNAPSHOT_ANCHOR_TRIES; i = read.indexOf(anchor, i + 1)) {
+				if (text.startsWith(read.slice(i))) {
+					overlap = read.length - i;
+					break;
+				}
+			}
+		}
+		task.readOffset = overlap;
+	}
+	task.output = text;
+}
+
 function finishTask(task: BackgroundTask, status: BackgroundStatus, exitCode: number | null): void {
 	if (task.status !== "running") return;
 	task.status = status;
@@ -185,7 +220,7 @@ function finishTask(task: BackgroundTask, status: BackgroundStatus, exitCode: nu
 	if (w) {
 		if (w.lineBuf) wakeLine(task, w, w.lineBuf);
 		w.lineBuf = "";
-		w.log.end();
+		if (!w.logError) w.log.end();
 		try {
 			writeFileSync(join(WAKE_ROOT, task.id, "exitcode"), `${exitCode ?? 1}\n`);
 		} catch {
@@ -200,16 +235,22 @@ function createWake(task: BackgroundTask, opts: WakeOptions): WakeState {
 	mkdirSync(dir, { recursive: true });
 	writeFileSync(join(dir, "command"), `${task.command}\n`);
 	const logFile = join(dir, "output.log");
-	return {
+	const log = createWriteStream(logFile, { flags: "w" });
+	const w: WakeState = {
 		pattern: opts.pattern ? new RegExp(opts.pattern) : undefined,
 		debounceMs: Math.max(0, opts.debounceMs ?? DEFAULT_WAKE_DEBOUNCE_MS),
 		pending: [],
 		dropped: 0,
 		lineBuf: "",
 		logFile,
-		log: createWriteStream(logFile, { flags: "w" }),
+		log,
 		lines: 0,
 	};
+	// Without a listener a failed write (disk full, dir removed) would be an uncaught exception and take Pi down.
+	log.on("error", (err) => {
+		w.logError = err.message;
+	});
+	return w;
 }
 
 function feedWake(task: BackgroundTask, w: WakeState, chunk: string): void {
@@ -221,7 +262,7 @@ function feedWake(task: BackgroundTask, w: WakeState, chunk: string): void {
 
 function wakeLine(task: BackgroundTask, w: WakeState, line: string): void {
 	w.lines++;
-	w.log.write(`${line}\n`);
+	if (!w.logError) w.log.write(`${line}\n`);
 	if (w.pattern && !w.pattern.test(line)) return;
 	if (w.pending.length >= MAX_LINES_PER_WAKE) w.dropped++;
 	else w.pending.push(line);
@@ -262,7 +303,7 @@ function sendWake(task: BackgroundTask, kind: "output" | "exit"): void {
 		const tail = tailLines(task.output, 20);
 		if (tail.trim()) content += `\n${tail}`;
 	}
-	if (w) content += `\nLog: ${w.logFile}`;
+	if (w) content += w.logError ? `\nLog unavailable (${w.logError}); shell id: ${task.id} (bash_output for the full output).` : `\nLog: ${w.logFile}`;
 	else content += `\nShell id: ${task.id} (bash_output for the full output).`;
 
 	piApi.sendMessage(
@@ -619,7 +660,7 @@ export function setupBackground(pi: ExtensionAPI): void {
 						.filter((c): c is { type: "text"; text: string } => c.type === "text")
 						.map((c) => c.text)
 						.join("\n");
-					bgTask.output = text;
+					setSnapshot(bgTask, text);
 					return;
 				}
 				onUpdate?.(partial);
@@ -669,7 +710,7 @@ export function setupBackground(pi: ExtensionAPI): void {
 								.filter((c): c is { type: "text"; text: string } => c.type === "text")
 								.map((c) => c.text)
 								.join("\n");
-							if (text) bgTask.output = text;
+							if (text) setSnapshot(bgTask, text);
 							const exit = (result.structuredContent as { exit_code?: number } | undefined)?.exit_code ?? 0;
 							finishTask(bgTask, exit === 0 ? "completed" : "failed", exit);
 							notifyModel(pi, bgTask);
@@ -728,6 +769,12 @@ export function setupBackground(pi: ExtensionAPI): void {
 			}
 			let fresh = task.output.slice(task.readOffset);
 			task.readOffset = task.output.length;
+			let note = "";
+			if (fresh.length > MAX_RESULT_CHARS) {
+				// Up to 2 MiB can be pending; keep the tail so the tool result stays a sane size for the model.
+				note = `[${fresh.length - MAX_RESULT_CHARS} earlier characters omitted; showing the last ${MAX_RESULT_CHARS}]\n`;
+				fresh = fresh.slice(-MAX_RESULT_CHARS);
+			}
 			if (args.filter) {
 				try {
 					const re = new RegExp(args.filter);
@@ -745,7 +792,7 @@ export function setupBackground(pi: ExtensionAPI): void {
 			}
 			const parts = [`<status>${task.status}</status>`];
 			if (task.status !== "running") parts.push(`<exit_code>${task.exitCode ?? "null"}</exit_code>`);
-			parts.push(`<stdout>\n${fresh.replace(/\n$/, "")}\n</stdout>`);
+			parts.push(`<stdout>\n${note}${fresh.replace(/\n$/, "")}\n</stdout>`);
 			parts.push(`<timestamp>${new Date().toISOString()}</timestamp>`);
 			return {
 				content: [{ type: "text", text: parts.join("\n") }],

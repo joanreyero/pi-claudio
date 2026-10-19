@@ -413,30 +413,37 @@ export function setupRewind(pi: ExtensionAPI): void {
 		}
 		if (!choice) return;
 		const { turn, action } = choice;
+		// A background wake may have started a turn while the picker was open; never touch files under a running agent.
+		if (!ctx.isIdle()) {
+			ctx.ui.notify("Rewind cancelled: the agent started working while the picker was open", "warning");
+			return;
+		}
 
-		let restoredFiles = 0;
 		const { files, turnIds } = snapshotsFrom(turns, turn);
-		if (action === "code" || action === "both") restoredFiles = restoreFiles(files);
 
+		// Settle the only cancellable step (navigateTree can ask about summarising / cancelling) before any write,
+		// so that a cancelled rewind leaves files, checkpoints and the conversation untouched.
 		let conversationRestored = false;
 		if (action === "conversation" || action === "both") {
 			const result = await ctx.navigateTree(turn.id);
 			if (result.cancelled) {
 				ctx.ui.notify("Rewind cancelled", "info");
-			} else {
-				conversationRestored = true;
-				// Pi already copies the prompt into an empty editor; make sure it is there.
-				if (!ctx.ui.getEditorText().trim()) ctx.ui.setEditorText(turn.text === "(image)" ? "" : turn.text);
+				return;
 			}
+			conversationRestored = true;
+			// Pi already copies the prompt into an empty editor; make sure it is there.
+			if (!ctx.ui.getEditorText().trim()) ctx.ui.setEditorText(turn.text === "(image)" ? "" : turn.text);
 		}
 
+		let restoredFiles = 0;
+		if (action === "code" || action === "both") restoredFiles = restoreFiles(files);
+
 		// Everything from the rewind point on is history now (code restored or the branch abandoned).
-		if (action === "both" || (action === "conversation" && conversationRestored) || action === "code") dropTurns(sessionId, turnIds);
+		dropTurns(sessionId, turnIds);
 
 		const parts: string[] = [];
 		if (conversationRestored) parts.push("conversation");
 		if (action === "code" || action === "both") parts.push(pluralize(restoredFiles, "file"));
-		if (parts.length === 0) return;
 		ctx.ui.notify(`${success("✓")} Rewound to ${clockTime(turn.timestamp)} ${dim("·")} restored ${parts.join(" and ")}`, "info");
 	};
 

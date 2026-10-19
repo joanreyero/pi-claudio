@@ -1,32 +1,15 @@
 # pi-claudio
 
-*Claude Code's look and feel for [pi](https://pi.dev).*
-
-pi-claudio is a Pi package that reskins the interactive TUI with a look and feel inspired by Claude Code: `●` tool rows with `⎿` result previews, a whimsical spinner, a permission-mode pill in the footer, background shell tasks, a todo checklist, Esc Esc rewind with file checkpoints, and Claude Code-style multi-agent workflows (via [pi-extensible-workflows](#workflows)). No build step: Pi loads the TypeScript directly.
+pi-claudio makes [pi](https://pi.dev) look and feel exactly like Claude Code.
 
 ```
 ✻ pi v1.3.0
-  Claude Fable 5.1 · GitHub Copilot
-  ~/Work
+  ~/my-project
 
   Tip: Press esc twice to rewind to a previous message
 
-> read /etc/hostname and reply in 3 words
+> run the tests and fix what fails
 
-● Read(/etc/hostname)
-  ⎿  Read 1 line (ctrl+o to expand)
-
-● Hostname is falcon.
-
-────────────────────────────────────────────────────────────────────────────────
-> Try "how do I log an error?"
-────────────────────────────────────────────────────────────────────────────────
-  ? for shortcuts          ↑6 ↓62 $0.064 1.1%/1m · ⏵⏵ bypass permissions on (shift+tab to cycle)
-```
-
-While the model works:
-
-```
 ● Bash(npm test)
   ⎿  Running… 4s
      (ctrl+b to run in background)
@@ -40,21 +23,17 @@ While the model works:
 
 ## Features
 
-- **`●` tool rows** for every tool: `● Read(src/foo.ts)`, `● Bash(ls)`, `● Update(file)` with a coloured diff, `● Write`, `● Search`, `● List`, `● Task` (pi-extensible-workflows), and a generic fallback for custom and MCP tools. Bullet is orange while running, green on success, red on error. Results sit under `  ⎿  ` with a 3-line preview and `… +N lines (ctrl+o to expand)`.
-- **Spinner** with the famous gerund verbs (`✻ Noodling…`, `Percolating…`, …), eased frames, shimmer, elapsed time, token count and `running tool for Ns`. The terminal title flips `◐`/`◑` while working.
-- **Permission modes**: `bypass permissions` (default) → `plan` cycled with **shift+tab**; `/permissions <mode>` and `/plan` also work. In `default`/`acceptEdits` modes a dialog asks before shell commands, edits, writes and destructive/MCP tools, with "don't ask again for `<prefix>` commands in `<cwd>`" remembered per project. Plan mode blocks mutating tools and tells the model why.
-- **ctrl+o** expands/collapses all tool output.
-- **Background tasks**: `bash` gains `run_in_background`; `bash_output` and `kill_shell` tools; **ctrl+b** moves the running foreground command to the background; `/tasks` (alias `/bashes`) opens the task list; `↓` on an empty prompt opens it too. The footer shows `N background tasks`.
-- **Background commands that wake the agent**: `bash` with `wake: true` injects new output into the session as it arrives (batched, optionally regex-filtered) and on exit, triggering a turn — see [below](#background-commands-that-wake-the-agent).
-- **PR watching**: `pr_watch` wakes the agent when CI finishes or fails, a review or comment lands, or the PR is merged; `pr_status` gives a snapshot — see [PR watching](#pr-watching).
-- **`todo_write`** tool rendered as `● Update Todos` with a `☒`/`☐` checklist; the in-progress item's `activeForm` replaces the spinner verb.
-- **Esc Esc rewind** (or `/rewind`): pick an earlier user message and restore the conversation, the code (from per-turn file checkpoints taken before every edit/write), or both.
-- **`?`** on an empty prompt shows the shortcuts panel.
-- **Footer** with the context hint, session tokens/cost, context usage, permission pill and background-task count.
-- **Header** with `✻ pi vX`, model · provider, cwd and a tip.
-- **MCP tool calls** render like any other tool: `● <server> · <tool>(args)` with the result preview (see [MCP](#mcp)).
-- **Workflows**: `/claudio setup` installs [pi-extensible-workflows](https://github.com/vekexasia/pi-extensible-workflows); its runs render as `● Task(name)` with a live agent tree — see [Workflows](#workflows).
-- A matching dark **theme** (`claudio`).
+- **Claude-style transcript** — `●` rows for every tool (`Read`, `Bash`, `Update` with a coloured diff, `Write`, `Search`, `List`, `Task`, MCP, generic), `⎿` result previews with `… +N lines`, **ctrl+o** to expand, the gerund spinner (`✻ Noodling…`), elapsed time and token count.
+- **Prompt box and footer** — session cost, context usage, permission pill, background-task count; a matching dark theme.
+- **Permission modes** — **shift+tab** cycles `bypass permissions` (default) ↔ `plan`; `/permissions default` turns on the ask-before dialogs for shell, edit, write and MCP tools, with "don't ask again for `<prefix>` commands in `<cwd>`".
+- **AskUserQuestion** — the model asks you 1–4 multiple-choice questions in a dialog (`ask_user_question`), with tabs, multi-select and free text.
+- **Background commands that wake the agent** — `bash` with `run_in_background` / `wake: true`, `bash_output`, `kill_shell`, **ctrl+b**, `/tasks`. Wakes inject new output and start a turn: no polling (after [pi-bgwatch](https://github.com/josep-reyero/pi-bgwatch)).
+- **Wait for PRs** — `pr_watch` wakes the agent when CI finishes or fails, a review or comment lands, or the PR merges; `pr_status` is a snapshot.
+- **Esc Esc rewind** — pick an earlier message and restore the conversation, the files (per-turn checkpoints before every edit/write), or both.
+- **Todo list** — `todo_write` rendered as `● Update Todos` with a `☒`/`☐` checklist; the in-progress item replaces the spinner verb.
+- **`?` shortcuts panel**, MCP tool rendering (`● <server> · <tool>(args)`), and **workflows** (`● Task(name)` with a live agent tree) via [pi-extensible-workflows](https://github.com/vekexasia/pi-extensible-workflows), installed by `/claudio setup` — why that one: [docs/workflows-eval.md](docs/workflows-eval.md).
+
+No build step: pi loads the TypeScript directly.
 
 ## Install
 
@@ -63,21 +42,17 @@ pi install git:github.com/joanreyero/pi-claudio
 pi
 ```
 
-Then, inside pi:
+Then inside pi:
 
 ```
 /claudio setup
 ```
 
-`/claudio setup` merges the recommended settings and keybindings into your personal config (other keys are kept), installs `npm:pi-extensible-workflows` if it is missing (see [Workflows](#workflows)) and asks you to restart or `/reload`. Until it has run, pi-claudio shows a one-line hint at startup.
-
-`/claudio status` shows which of the recommended values are applied and whether the workflow package is installed.
+It merges the recommended settings and keybindings into your config (other keys are kept), installs `npm:pi-extensible-workflows` if missing, and asks you to `/reload`. `/claudio status` shows what is applied.
 
 ## Configuration
 
-`/claudio setup` writes:
-
-`~/.pi/agent/settings.json`
+`/claudio setup` writes to `~/.pi/agent/settings.json`:
 
 ```json
 {
@@ -90,13 +65,9 @@ Then, inside pi:
 }
 ```
 
-- `tuiMode: regular` — scrollback-style transcript rather than fullscreen.
-- `outputPad: 0` — the `●` sits in column 0.
-- `quietStartup: true` — pi-claudio draws its own header.
-- `hideThinkingBlock: true` — collapsed thinking shows as `✻ Thinking…`.
-- `doubleEscapeAction: none` — frees Esc Esc for the rewind picker.
+(`regular` = scrollback transcript, `outputPad: 0` puts `●` in column 0, `quietStartup` lets pi-claudio draw the header, `doubleEscapeAction: none` frees Esc Esc for rewind.)
 
-`~/.pi/agent/keybindings.json`
+and to `~/.pi/agent/keybindings.json`:
 
 ```json
 {
@@ -106,24 +77,66 @@ Then, inside pi:
 }
 ```
 
-`app.thinking.cycle` is moved to alt+t so shift+tab can cycle permission modes. If you also see a `ctrl+b` conflict warning with `tui.editor.cursorLeft`, add `"tui.editor.cursorLeft": ["left"]`.
+`app.thinking.cycle` moves to alt+t so shift+tab can cycle permission modes. If you see a `ctrl+b` conflict with `tui.editor.cursorLeft`, add `"tui.editor.cursorLeft": ["left"]`.
 
-Everything pi-claudio persists (permission allow-lists, file checkpoints) lives in `~/.pi/agent/claudio/`, never inside the package directory.
+Everything pi-claudio persists (allow-lists, file checkpoints) lives in `~/.pi/agent/claudio/`, never inside the package directory.
 
-### Permission modes
+## Permission modes
 
 | Mode | Behaviour |
 |---|---|
-| `bypassPermissions` (default) | Everything runs. Footer shows `⏵⏵ bypass permissions on`. |
-| `plan` | Only read-only tools run; the model is told to present a plan. Footer shows `⏸ plan mode on`. |
+| `bypassPermissions` (default) | Everything runs. Footer: `⏵⏵ bypass permissions on`. |
+| `plan` | Only read-only tools run; the model is told to present a plan. Footer: `⏸ plan mode on`. |
 | `default` | Ask before shell commands (except safe read-only ones), edits, writes, destructive/MCP tools. |
-| `acceptEdits` | Like `default`, but edits/writes are auto-approved. |
+| `acceptEdits` | Like `default`, but edits and writes are auto-approved. |
 
-shift+tab cycles `bypassPermissions ↔ plan`; `/permissions default` or `/permissions acceptEdits` selects the asking modes.
+shift+tab cycles `bypassPermissions ↔ plan`; `/permissions default`, `/permissions acceptEdits` and `/plan` select the others.
+
+```
+● Bash(ls | tee out.txt)
+
+────────────────────────────────────────────────────────────────────────────────
+ Bash command
+
+   ls | tee out.txt
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don't ask again for tee commands in ~/my-project
+   3. No, and tell me what to do differently (esc)
+```
+
+A command is "safe" (never asked) only when every piece of it — across `|`, `&&`, `||`, `;`, `&` and newlines — is an allowlisted read-only command and there is no redirect or command substitution. "Don't ask again" likewise covers a later command only when every piece is safe or approved.
+
+## AskUserQuestion
+
+`ask_user_question` lets the model stop and ask you to decide (1–4 questions, 2–4 options each, optional multi-select). Keys: `1`–`9`, `↑`/`↓`, enter, space to toggle, `←`/`→` between questions, esc to cancel. The last option is always "Type something else."
+
+```
+● Asking question
+
+────────────────────────────────────────────────────────────────────────────────
+ Question 1 of 2
+  Database   Auth
+
+ Which database should the service use?
+
+ ❯ 1. Postgres
+      Recommended: already used by the API
+   2. SQLite
+      Simplest for a single-node deployment
+   3. Type something else.
+```
+
+```
+● Asked question
+  ⎿  Database → Postgres
+     Auth     → Sessions
+```
 
 ## Background commands that wake the agent
 
-The `bash` tool takes `wake: true` (implies `run_in_background`). The command runs in the background and the agent is **woken** — a message is injected into the session and a turn starts — with each batch of new output lines and when the command exits. No polling, no `sleep` loops: the model starts the command, ends its turn, and acts when woken.
+`bash` takes `run_in_background` and `wake: true` (implies background). The agent is **woken** — a message is injected and a turn starts — with each batch of new output and when the command exits. The model starts the command, ends its turn, and acts when woken.
 
 | `bash` param | Meaning |
 |---|---|
@@ -136,24 +149,21 @@ The `bash` tool takes `wake: true` (implies `run_in_background`). The command ru
 ● Bash(for i in 1 2 3; do echo tick $i; sleep 4; done)
   ⎿  Running in the background · wakes on output and exit · ticker (down to manage)
 
-● Started the ticker task in the background. I'll be woken as output arrives and when it exits.
-
 ● ticker · output
   ⎿  tick 1
 
 ● Got tick 1 from the ticker. Waiting for the rest.
 …
 ● ticker · exited 0
-  ⎿  (no output)
 ```
 
-Each wake is a `bg-wake` message whose text is `<title> output:` + lines (or `<title> exited N.`) followed by `Log: <path>`; it is delivered with `{ triggerTurn: true, deliverAs: "followUp" }`, so a wake that arrives mid-turn queues behind the current turn instead of interrupting it. At most 200 lines per wake; the rest is counted and pointed at the log. Logs live under `$TMPDIR/pi-claudio/<pi pid>/<task id>/` (`command`, `output.log`, `exitcode`) so concurrent pi sessions never share files. Wake tasks appear in `/tasks` (tagged `wake`) and in the footer count; `kill_shell` stops them (the exit wakes the agent once more). Commands moved to the background with **ctrl+b** also wake the agent when they exit.
+Wakes are `bg-wake` messages delivered as follow-ups, so one that arrives mid-turn queues instead of interrupting. At most 200 lines per wake; the rest is counted and pointed at the log under `$TMPDIR/pi-claudio/<pid>/<task>/`. `bash_output` reads new output, `kill_shell` stops a task (its exit wakes the agent once more), **ctrl+b** moves a running foreground command to the background, `/tasks` (or `↓` on an empty prompt) lists them.
 
-The design and the batching logic follow [pi-bgwatch](https://github.com/josep-reyero/pi-bgwatch) by Josep Reyero (MIT) — pi-claudio folds the same primitive into its existing background `bash` instead of adding a separate tool.
+The batching logic follows [pi-bgwatch](https://github.com/josep-reyero/pi-bgwatch) by Josep Reyero (MIT), folded into the existing `bash` tool instead of a separate one.
 
 ## PR watching
 
-Built on the wake primitive above. The package ships `scripts/pr-watch` (python3 + `gh`), which polls a pull request every N seconds and prints **one line per change**:
+`scripts/pr-watch` (python3 + `gh`) polls a pull request and prints one line per change:
 
 ```
 CHECKS head=008aff7 ok=0 failing=0 pending=2
@@ -165,73 +175,41 @@ STATE merged
 DONE ci passed
 ```
 
-`pr-watch [--repo owner/name] [--pr N] [--interval 60] [--until first_event|ci_done|review|merged] [--log-failed] [--include-self]` — the PR is resolved from the current branch when omitted; events are deduplicated by id; your own comments are skipped unless `--include-self`; `--log-failed` appends the last 40 lines of `gh run view --log-failed` under a failed check. It exits 0 with `DONE <reason>` when the `--until` condition is met.
-
-Two tools wrap it:
-
-- **`pr_watch`** (`pr`, `repo`, `interval`, `until`, `log_failed`, `include_self`) starts `pr-watch` through `bash` with `wake: true`, title `PR #N` and a `wake_pattern` for the event lines. Rendered as `● PR Watch(#2 · every 15s)`; the wakes as `● PR #2 · output` / `● PR #2 · exited 0`. The model is told to offer it after `gh pr create`.
-- **`pr_status`** (`pr`, `repo`) is an immediate `gh` snapshot: title, state, checks summary with failed-check URLs, reviews, review decision and the latest comments. Rendered as `● PR Status(#2)`.
+`pr-watch [--repo owner/name] [--pr N] [--interval 60] [--until first_event|ci_done|review|merged] [--log-failed] [--include-self]`. Two tools wrap it: **`pr_watch`** starts it as a wake task (`● PR Watch(#2 · every 15s)`, wakes as `● PR #2 · output`), and **`pr_status`** is an immediate `gh` snapshot (`● PR Status(#2)`). The model is told to offer `pr_watch` after `gh pr create`.
 
 ```
 > watch PR 2, interval 15s, until ci_done
 
 ● PR Watch(#2 · every 15s)
-  ⎿  Watching joanreyero/pi-claudio-scratch#2 every 15s until ci done (task 1d6a8c)
-
-● Watching PR #2 every 15s; I'll report back when CI finishes.
-
-● PR #2 · output
-  ⎿  CHECKS head=008aff7 ok=0 failing=0 pending=2
-
-● CI on PR #2 has 2 checks pending, none failed yet. Still watching until they finish.
+  ⎿  Watching acme/widgets#2 every 15s until ci done (task 1d6a8c)
 
 ● PR #2 · exited 0
   ⎿  CHECKS head=008aff7 ok=2 failing=0 pending=0
      DONE ci passed
 
-● CI passed on PR #2: 2/2 checks green. Watcher has stopped.
+● CI passed on PR #2: 2/2 checks green.
 ```
 
 Requires the GitHub CLI (`gh auth login`) and python3.
 
+## Rewind
+
+Esc Esc on an empty prompt (or `/rewind`) opens a picker of your earlier messages. Choose to restore the **conversation**, the **code** (files are checkpointed before every edit/write, per turn, under `~/.pi/agent/claudio/checkpoints/`), or **both**. Nothing is written until the choice is confirmed; cancelling leaves files and history untouched.
+
 ## MCP
 
-Pi's MCP support is built in; pi-claudio only renders the calls. Add servers with `pi mcp add` or by editing `~/.pi/agent/mcp.json`, and inspect/sign in with `/mcp` inside a session (see Pi's `docs/mcp.md`).
-
-Example — the Slack remote server with OAuth (an example only; pi-claudio ships no server config):
-
-```bash
-pi mcp add slack --url https://mcp.slack.com/mcp
-```
-
-then in `~/.pi/agent/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "slack": {
-      "url": "https://mcp.slack.com/mcp",
-      "oauth": { "clientId": "1601185624273.8899143856786", "callbackPort": 3118 },
-      "description": "Slack workspace: search messages, read channels and threads, send messages"
-    }
-  }
-}
-```
-
-Run `/mcp` (or `pi mcp login slack`) to sign in. Tools are named `mcp__<server>__<tool>`; with the default `codemode` exposure the model reaches them from `codemode` scripts, and with `direct` exposure (`"toolExposure": { "slack_search_users": "direct" }`) they show up in the transcript as:
+Pi's MCP support is built in; pi-claudio only renders the calls. Add servers with `pi mcp add <name> --url <url>` or in `~/.pi/agent/mcp.json`, sign in with `/mcp`. Tools are named `mcp__<server>__<tool>`; with `direct` exposure they appear as:
 
 ```
-● slack · slack_search_users(keywords: ["joan"], …)
+● slack · slack_search_users(keywords: ["ana"], …)
   ⎿  {"results":"# Search Results …
 ```
 
-MCP tools without `readOnlyHint` annotations are treated as destructive by the permission gate (they prompt in `default`/`acceptEdits` mode).
+MCP tools without `readOnlyHint` are treated as destructive by the permission gate (they prompt in `default`/`acceptEdits`).
 
 ## Workflows
 
-Claude Code's `Task` fan-out (parallel sub-agents, pipelines, reviews) comes from **[pi-extensible-workflows](https://github.com/vekexasia/pi-extensible-workflows)** (vekexasia). `/claudio setup` runs `pi install npm:pi-extensible-workflows` when it is missing; `/claudio status` reports it. Why this one: it won a head-to-head against pi-ultracode on review quality (equal), cost (equal), maintenance (6 contributors, weekly releases vs one author), install footprint (8 MB vs 72 MB) and system-prompt cost (+1.3 k chars vs +22 k chars on every turn) — details and numbers in [docs/workflows-eval.md](docs/workflows-eval.md). Don't install a second workflow package: they register the same `workflow` tool.
-
-How pi-claudio renders a run:
+Claude Code's `Task` fan-out (parallel sub-agents, pipelines, reviews) comes from [pi-extensible-workflows](https://github.com/vekexasia/pi-extensible-workflows). `/claudio setup` installs it; don't install a second workflow package (they register the same `workflow` tool). It was picked over pi-ultracode on equal review quality and cost, with a much smaller install and system-prompt footprint — numbers in [docs/workflows-eval.md](docs/workflows-eval.md).
 
 ```
 ● Task(bug-review)
@@ -241,23 +219,33 @@ How pi-claudio renders a run:
      └ Running…
 ```
 
-`● Task(<name>)` rows with the live agent tree while it runs, `Done (N tool uses · tokens · time)` / `Workflow cancelled` on exit, and the `[workflow]` follow-up messages as normal `●` rows. `/workflow` opens the package's inline run browser (it respects the footer, no fullscreen overlay); the bundled prompt templates `/review`, `/parallel-review`, `/council`, `/scout`, `/deep-research` and the `subagents_*` tools work unchanged.
+`/workflow` opens the inline run browser; the bundled `/review`, `/parallel-review`, `/council`, `/scout`, `/deep-research` templates and the `subagents_*` tools work unchanged.
 
 ### Workflow tips
 
-Four habits borrowed from the eval that cost nothing per turn. Paste into your `AGENTS.md`:
+Habits from the eval that cost nothing per turn — paste into your `AGENTS.md`:
 
 ```markdown
-## Workflow tips
-- Pick the smallest **depth** that lets you verify the key claim: `focused` = check it directly yourself, no agents;
+- Pick the smallest depth that verifies the key claim: `focused` = check it yourself, no agents;
   `standard` = independent dimensions or competing hypotheses → fan out, then verify disputed claims;
-  `deep` = interacting invariants → independent evidence plus a counterexample. Risk words and file counts
-  don't raise depth; missing evidence does.
+  `deep` = interacting invariants → independent evidence plus a counterexample.
 - Before launching agents, `log('analysis-depth: <level> — <reason>')` so the choice shows in the Task tree.
-- Reviewers return structured output (`outputSchema`: `{ file, line, severity, title, evidence }`) and the
-  parent synthesises the lists itself instead of spawning a summariser agent.
+- Reviewers return structured output (`{ file, line, severity, title, evidence }`) and the parent
+  synthesises the lists itself instead of spawning a summariser agent.
 - Set effort per child with the model suffix: reviewers and judges `':high'`, mechanical children `':low'`.
 ```
+
+## Known limitations
+
+From pi's extension API; not changeable from a package:
+
+- **User message echo** is pi's component: a 3-row block with the `userMessageBg` background.
+- **`Error: The operation was aborted.`** appears after Esc while a tool runs.
+- **Assistant messages starting with a fence, list or table** get the `●` on its own line above the block.
+- **ctrl+o** also shows pi's own `Tool output: expanded/collapsed` notice.
+- **`!` shell mode** output uses pi's built-in component, not the `●`/`⎿` shape.
+- **shift+tab** is reserved by pi for `app.thinking.cycle` until `/claudio setup` rebinds it.
+- The running tool bullet is steady orange (no blink).
 
 ## Uninstall
 
@@ -265,23 +253,11 @@ Four habits borrowed from the eval that cost nothing per turn. Paste into your `
 pi remove git:github.com/joanreyero/pi-claudio
 ```
 
-Then set `"theme"` in `~/.pi/agent/settings.json` to another theme (e.g. `"dark"`) and, if you want Pi's defaults back, remove the keys listed under [Configuration](#configuration) from `settings.json` and `keybindings.json`. State in `~/.pi/agent/claudio/` can be deleted.
-
-## Known limitations
-
-These come from Pi's extension API and cannot be changed from a package:
-
-- **User message echo** is Pi's `UserMessageComponent`: a 3-row block (blank / `> text` / blank) with the `userMessageBg` background; the `>` and wrapped lines use the message text colour.
-- **`Error: The operation was aborted.`** appears after Esc while a tool runs — emitted by Pi's assistant message component.
-- **Assistant messages starting with a fence, list or table** get the `●` on its own line above the block (the Markdown transformer can only prepend text). Code blocks keep Pi's fence rows.
-- **ctrl+o** also shows Pi's own `Tool output: expanded/collapsed` notice.
-- **`!` shell mode** output uses Pi's built-in bash execution component, not the `●`/`⎿` shape.
-- **shift+tab** is reserved by Pi for `app.thinking.cycle` until `/claudio setup` rebinds it; before that use `/permissions` or `/plan`.
-- The running tool bullet is steady orange (no blink): tool renderers have no lifecycle hook to stop a timer.
+Then set `"theme"` in `~/.pi/agent/settings.json` to another theme and, if you want pi's defaults back, remove the keys listed under [Configuration](#configuration). State in `~/.pi/agent/claudio/` can be deleted.
 
 ## Development
 
-See [docs/DEV.md](docs/DEV.md) for the module layout, the Pi API notes and the typecheck / tmux snapshot harness.
+See [docs/DEV.md](docs/DEV.md) for the module layout, pi API notes and the typecheck / tmux snapshot harness.
 
 ## License
 

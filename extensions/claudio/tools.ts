@@ -28,6 +28,7 @@ import { getLanguageFromPath, highlightCode, keyText } from "@earendil-works/pi-
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { Component } from "@earendil-works/pi-tui";
 import { getCapabilities, getImageDimensions, imageFallback, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import type { AskDetails } from "./ask.ts";
 import { ANSI, BG, FG, RESULT_INDENT, bold, bus, dim, formatDuration, formatTokens, moreLines, pluralize as plural, relPath as sharedRelPath } from "./shared.ts";
 
 // ───────────────────────────── Shared helpers ─────────────────────────────
@@ -851,13 +852,13 @@ function taskTree(status: Rec, running: boolean, expanded: boolean): string[] {
 	const agents = Array.isArray(status.agents) ? (status.agents as Rec[]) : Array.isArray(obj(status.run)?.agents) ? (obj(status.run)!.agents as Rec[]) : [];
 	const items: string[] = [];
 	for (const call of toolCalls) {
-		const state = str(call.state);
+		const state = str(call.state) || str(call.status);
 		const name = str(call.name) || "tool";
 		items.push(state === "failed" ? red(name) : state === "running" ? name : dim(name));
 	}
 	for (const agent of agents) {
 		const label = str(agent.label) || str(agent.name) || str(agent.id);
-		const state = str(agent.state);
+		const state = str(agent.state) || str(agent.status);
 		items.push(`${label}${state ? dim(` · ${state}`) : ""}`);
 	}
 	const activity = obj(progress?.activity);
@@ -912,7 +913,7 @@ function taskRenderers(toolName: string): ToolRenderers {
 						const s = obj(item);
 						if (!s) return str(item);
 						const label = str(s.label) || str(s.id) || str(s.runId) || str(s.name);
-						const state = str(s.state);
+						const state = str(s.state) || str(s.status);
 						return `${label}${state ? dim(` · ${state}`) : ""}`;
 					});
 					if (lines.length === 0) return resultLines(w, ctx.outputPad, [dim("(No tasks)")]);
@@ -1066,6 +1067,39 @@ function prRenderers(toolName: string): ToolRenderers {
 	};
 }
 
+// ───────────────────────────── ask_user_question ─────────────────────────────
+
+/** `● Asking question` while the dialog is open; `● Asked question` + `⎿ Header → answer` rows when done. */
+function askRenderers(): ToolRenderers {
+	return {
+		renderShell: "self",
+		renderCall(_rawArgs: unknown, _theme: Theme, ctx: RenderCtx<RowState>) {
+			const c = lazy(ctx);
+			c.set((w) => {
+				const status = statusOf(ctx);
+				const title = status === "running" ? "Asking question" : "Asked question";
+				return [truncateToWidth(`${" ".repeat(ctx.outputPad)}${bulletFor(status)} ${bold(title)}`, w)];
+			});
+			return c;
+		},
+		renderResult(result: AgentToolResult<AskDetails | undefined>, options: ToolRenderResultOptions, _theme: Theme, ctx: RenderCtx<RowState>) {
+			markStatus(ctx, options);
+			const c = lazy(ctx);
+			const d = result.details;
+			const raw = textOf(result, ctx.showImages);
+			c.set((w) => {
+				if (options.isPartial) return resultLines(w, ctx.outputPad, [dim("Waiting for your answer…")]);
+				if (ctx.isError) return resultLines(w, ctx.outputPad, errorLines(raw));
+				if (!d || d.cancelled || d.answers.length === 0) return resultLines(w, ctx.outputPad, [dim(raw.trim() || "User cancelled")]);
+				const headerW = Math.max(...d.answers.map((a) => visibleWidth(a.header)));
+				const rows = d.answers.map((a) => `${a.header.padEnd(headerW)} ${dim("→")} ${a.answer}`);
+				return withPreview(w, ctx.outputPad, undefined, rows, options.expanded, 4);
+			});
+			return c;
+		},
+	};
+}
+
 // ───────────────────────────── Registration ─────────────────────────────
 
 export function setupToolRenderers(pi: ExtensionAPI): void {
@@ -1090,6 +1124,8 @@ export function setupToolRenderers(pi: ExtensionAPI): void {
 			case "todo_write":
 				// todo.ts renders its own `● Update Todos` list.
 				return _next();
+			case "ask_user_question":
+				return askRenderers();
 			default:
 				if (TASK_TOOLS.has(toolName)) return taskRenderers(toolName);
 				if (toolName in PR_TOOL_NAMES) return prRenderers(toolName);
