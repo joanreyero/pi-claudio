@@ -375,7 +375,7 @@ class ClaudioFooter implements Component {
 // 4. "?" shortcuts panel
 // ---------------------------------------------------------------------------------------------
 const HELP_COLUMNS: readonly (readonly string[])[] = [
-	["! for shell mode", "/ for commands", "@ for file paths", "/btw for side question"],
+	["! for shell mode", "/ for commands", "@ for file paths", "/add-dir for more dirs"],
 	["double tap esc to clear input", "shift + tab to auto-accept edits", "ctrl + o for verbose output", "ctrl + t to toggle tasks", "esc esc to rewind to a message"],
 	[
 		"ctrl + _ to undo",

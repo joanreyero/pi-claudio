@@ -4,6 +4,8 @@
  * Order matters in places:
  *  - the theme binding (shared.ts `bindTheme`) is registered first so every later session_start handler
  *    and every renderer sees the active Pi theme;
+ *  - dirs (/add-dir) before permissions: its before_agent_start section must exist when permissions
+ *    appends its plan-mode hint to the rendered prompt, and permissions reads its working-directory list;
  *  - permissions first so its tool_call gate is registered before any tool runs;
  *  - background re-registers `bash` before tools.ts hands out renderers for it;
  *  - pr (pr_watch / pr_status) after background: pr_watch starts a wake-enabled background task;
@@ -18,6 +20,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { setupAsk } from "./ask.ts";
 import { setupBackground } from "./background.ts";
 import { setupChrome } from "./chrome.ts";
+import { setupDirs } from "./dirs.ts";
 import { setupHerdr } from "./herdr.ts";
 import { setupMessages } from "./messages.ts";
 import { setupPermissions } from "./permissions.ts";
@@ -37,6 +40,7 @@ export default function (pi: ExtensionAPI): void {
 		bindTheme(ctx.hasUI ? ctx.ui.theme : undefined);
 	});
 	setupClaudioCommand(pi);
+	setupDirs(pi);
 	setupPermissions(pi);
 	setupBackground(pi);
 	setupTodo(pi);

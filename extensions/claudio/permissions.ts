@@ -5,7 +5,8 @@
  * The current mode lives on the shared bus (bus.ts, key "permissionMode").
  *
  * - default:      ask before bash (unless a safe read-only command), edit, write, destructive extension tools
- * - acceptEdits:  auto-approve edit/write, still ask for bash
+ * - acceptEdits:  auto-approve edit/write inside the working directories (cwd + /add-dir, see dirs.ts),
+ *                 ask for anything outside them and for bash
  * - plan:         block every mutating tool (plan-mode reason), let read-only run
  * - bypass:       approve everything
  *
@@ -18,6 +19,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import type { ExtensionAPI, ExtensionContext, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { generateDiffString } from "@earendil-works/pi-coding-agent";
 import type { Component, Focusable } from "@earendil-works/pi-tui";
+import { addDir, isInWorkingDirs } from "./dirs.ts";
 import { shiftTabIsFree } from "./setup.ts";
 import { CURSOR_MARKER, matchesKey, renderFakeCursor, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import {
@@ -428,6 +430,16 @@ function bashSpec(command: string, description: string | undefined, cwd: string)
 	};
 }
 
+/**
+ * Option 2 of the edit/write dialogs. Inside the working directories it switches to acceptEdits; outside
+ * (only reached in acceptEdits mode, or in default mode for a file outside the project) it adds the file's
+ * directory with /add-dir semantics so later edits there are auto-accepted too.
+ */
+function editOption2(abs: string, cwd: string): DialogSpec["option2"] {
+	if (isInWorkingDirs(abs, cwd)) return "Yes, allow all edits during this session (shift+tab)";
+	return (max) => `Yes, and allow edits in ${bold(shortenPath(dirname(abs), Math.max(10, max - 30)))} during this session`;
+}
+
 function editSpec(path: string, edits: { oldText: string; newText: string }[], cwd: string): DialogSpec {
 	const abs = isAbsolute(path) ? path : resolve(cwd, path);
 	const name = basename(abs);
@@ -449,7 +461,7 @@ function editSpec(path: string, edits: { oldText: string; newText: string }[], c
 			return lines;
 		},
 		question: `Do you want to make this edit to ${bold(name)}?`,
-		option2: "Yes, allow all edits during this session (shift+tab)",
+		option2: editOption2(abs, cwd),
 	};
 }
 
@@ -464,7 +476,7 @@ function writeSpec(path: string, content: string, cwd: string): DialogSpec {
 		subtitle: displayPath(path, cwd),
 		body: (w) => renderClaudioDiff(diff, w),
 		question: `Do you want to ${exists ? "overwrite" : "create"} ${bold(name)}?`,
-		option2: "Yes, allow all edits during this session (shift+tab)",
+		option2: editOption2(abs, cwd),
 	};
 }
 
@@ -719,14 +731,22 @@ export function setupPermissions(pi: ExtensionAPI): void {
 		if (kind === "edit" || kind === "write") {
 			const path = String(input.path ?? "");
 			if (mode === "plan") return { block: true, reason: `Cannot write to ${displayPath(path, cwd)} while in plan mode.${PLAN_MODE_HINT}` };
-			if (mode === "acceptEdits") return undefined;
+			const inside = isInWorkingDirs(path, cwd);
+			if (mode === "acceptEdits" && inside) return undefined;
 			if (!ctx.hasUI) return undefined;
 			const spec =
 				kind === "edit"
 					? editSpec(path, Array.isArray(input.edits) ? (input.edits as { oldText: string; newText: string }[]) : [], cwd)
 					: writeSpec(path, String(input.content ?? ""), cwd);
 			const decision = await ask(ctx, event.toolCallId, spec);
-			if (decision.choice === "always") setPermissionMode("acceptEdits");
+			if (decision.choice === "always") {
+				if (inside) setPermissionMode("acceptEdits");
+				else {
+					// Outside the project: remember the directory (/add-dir) and auto-accept edits from now on.
+					addDir(pi, dirname(isAbsolute(path) ? path : resolve(cwd, path)), cwd);
+					setPermissionMode("acceptEdits");
+				}
+			}
 			return decision.choice === "no" ? deny(ctx, decision.feedback) : undefined;
 		}
 

@@ -25,7 +25,7 @@ pi-claudio makes [pi](https://pi.dev) look and feel exactly like Claude Code.
 
 - **Claude-style transcript** — `●` rows for every tool (`Read`, `Bash`, `Update` with a coloured diff, `Write`, `Search`, `List`, `Task`, MCP, generic), `⎿` result previews with `… +N lines`, **ctrl+o** to expand, the gerund spinner (`✻ Noodling…`), elapsed time and token count.
 - **Prompt box and footer** — session cost, context usage, permission pill, background-task count; a matching dark theme.
-- **Permission modes** — **shift+tab** cycles `bypass permissions` (default) ↔ `plan`; `/permissions default` turns on the ask-before dialogs for shell, edit, write and MCP tools, with "don't ask again for `<prefix>` commands in `<cwd>`".
+- **Permission modes** — **shift+tab** cycles `bypass permissions` (default) ↔ `plan`; `/permissions default` turns on the ask-before dialogs for shell, edit, write and MCP tools, with "don't ask again for `<prefix>` commands in `<cwd>`". `/add-dir <path>` adds working directories where edits are auto-accepted in `acceptEdits` mode.
 - **AskUserQuestion** — the model asks you 1–4 multiple-choice questions in a dialog (`ask_user_question`), with tabs, multi-select and free text.
 - **Background commands that wake the agent** — `bash` with `run_in_background` / `wake: true`, `bash_output`, `kill_shell`, **ctrl+b**, `/tasks`. Wakes inject new output and start a turn: no polling (after [pi-bgwatch](https://github.com/josep-reyero/pi-bgwatch)).
 - **Wait for PRs** — `pr_watch` wakes the agent when CI finishes or fails, a review or comment lands, or the PR merges; `pr_status` is a snapshot.
@@ -107,7 +107,7 @@ The bundled `claudio` theme (`themes/claudio.json`) sets those tokens to Claude 
 | `bypassPermissions` (default) | Everything runs. Footer: `⏵⏵ bypass permissions on`. |
 | `plan` | Only read-only tools run; the model is told to present a plan. Footer: `⏸ plan mode on`. |
 | `default` | Ask before shell commands (except safe read-only ones), edits, writes, destructive/MCP tools. |
-| `acceptEdits` | Like `default`, but edits and writes are auto-approved. |
+| `acceptEdits` | Like `default`, but edits and writes inside the working directories (cwd and `/add-dir` directories) are auto-approved. |
 
 shift+tab cycles `bypassPermissions ↔ plan`; `/permissions default`, `/permissions acceptEdits` and `/plan` select the others.
 
@@ -124,6 +124,10 @@ shift+tab cycles `bypassPermissions ↔ plan`; `/permissions default`, `/permiss
    2. Yes, and don't ask again for tee commands in ~/my-project
    3. No, and tell me what to do differently (esc)
 ```
+
+### Working directories: `/add-dir`
+
+`/add-dir <path>` adds a directory to the session (Claude Code's `/add-dir`). Edits and writes there are auto-approved in `acceptEdits` mode, the model is told about it in the system prompt, and its `AGENTS.md` / `CLAUDE.md` is loaded as project context like the cwd's own. `/add-dir` alone lists the working directories. The list is stored in the session, so `/resume` keeps it. When an edit lands outside every working directory, the dialog's second option is **Yes, and allow edits in `<dir>` during this session**, which adds that directory and switches to `acceptEdits`.
 
 A command is "safe" (never asked) only when every piece of it — across `|`, `&&`, `||`, `;`, `&` and newlines — is an allowlisted read-only command and there is no redirect or command substitution. "Don't ask again" likewise covers a later command only when every piece is safe or approved.
 
