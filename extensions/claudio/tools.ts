@@ -29,23 +29,17 @@ import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { Component } from "@earendil-works/pi-tui";
 import { getCapabilities, getImageDimensions, imageFallback, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { AskDetails } from "./ask.ts";
-import { ANSI, BG, FG, RESULT_INDENT, bold, bus, dim, formatDuration, formatTokens, moreLines, pluralize as plural, relPath as sharedRelPath } from "./shared.ts";
+import { ANSI, BG, RESULT_INDENT, bold, bus, dim, fg, formatDuration, formatTokens, moreLines, pluralize as plural, relPath as sharedRelPath } from "./shared.ts";
 
 // ───────────────────────────── Shared helpers ─────────────────────────────
 
-const ORANGE = FG.claudio;
-const GREEN = FG.success;
-const RED = FG.error;
-const FG_RESET = ANSI.fgReset;
-const BG_DIFF_ADDED = BG.diffAdded;
-const BG_DIFF_REMOVED = BG.diffRemoved;
-const BG_DIFF_ADDED_WORD = BG.diffAddedWord;
-const BG_DIFF_REMOVED_WORD = BG.diffRemovedWord;
+// Colours come from the active Pi theme via shared.ts: `FG`/`BG` are live getters, so they are read
+// at render time rather than cached here (a `/settings` theme switch must repaint on the next render).
 const BG_RESET = ANSI.bgReset;
 
-const orange = (s: string): string => `${ORANGE}${s}${FG_RESET}`;
-const green = (s: string): string => `${GREEN}${s}${FG_RESET}`;
-const red = (s: string): string => `${RED}${s}${FG_RESET}`;
+const orange = (s: string): string => fg("claudio", s);
+const green = (s: string): string => fg("success", s);
+const red = (s: string): string => fg("error", s);
 
 // ───────────────────────────── Types ─────────────────────────────
 
@@ -555,7 +549,7 @@ function wordHighlight(oldText: string, newText: string): { old: string; new: st
 		const tail = parts.slice(parts.length - suffix).join("");
 		return mid ? `${head}${bg}${mid}${rowBg}${tail}` : head + tail;
 	};
-	return { old: wrap(a, BG_DIFF_REMOVED_WORD, BG_DIFF_REMOVED), new: wrap(b, BG_DIFF_ADDED_WORD, BG_DIFF_ADDED) };
+	return { old: wrap(a, BG.diffRemovedWord, BG.diffRemoved), new: wrap(b, BG.diffAddedWord, BG.diffAdded) };
 }
 
 function diffLines(diff: string, innerWidth: number, expanded: boolean): string[] {
@@ -589,7 +583,7 @@ function diffLines(diff: string, innerWidth: number, expanded: boolean): string[
 			out.push(`${dim(num)} ${marker}  ${truncateToWidth(texts[i] ?? "", Math.max(1, innerWidth - gutter - 4), "…")}`);
 			continue;
 		}
-		const bg = row.kind === "add" ? BG_DIFF_ADDED : BG_DIFF_REMOVED;
+		const bg = row.kind === "add" ? BG.diffAdded : BG.diffRemoved;
 		out.push(`${bg}${truncateToWidth(content, innerWidth, "…", true)}${BG_RESET}`);
 	}
 	if (visible < rows.length) out.push(dim(`… ${plural(rows.length - visible, "more line")} ${expandHint()}`));

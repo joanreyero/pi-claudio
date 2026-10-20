@@ -25,9 +25,7 @@ import type { Component, TUI } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { ANSI, FG, VERBS, bus, formatDuration, formatTokens, spinnerFrames } from "./shared.ts";
 
-// ── palette (from shared.ts) ────────────────────────────────────────────────────────────
-const CLAUDIO = FG.claudio;
-const CLAUDIO_SHIMMER = FG.claudioShimmer;
+// ── palette (from shared.ts; `FG` is a live getter over the active Pi theme) ─────────────────────
 const FG_RESET = ANSI.fgReset;
 const DIM = ANSI.dim;
 const DIM_RESET = ANSI.boldDimReset;
@@ -105,7 +103,7 @@ function renderMessage(message: string, elapsedMs: number): string {
 	const center = width + GLIMMER_RUNOUT - (tick % span);
 	const lo = center - 1;
 	const hi = center + 1;
-	if (lo >= width || hi < 0) return `${CLAUDIO}${message}${FG_RESET}`;
+	if (lo >= width || hi < 0) return `${FG.claudio}${message}${FG_RESET}`;
 	let before = "";
 	let shimmer = "";
 	let after = "";
@@ -114,7 +112,8 @@ function renderMessage(message: string, elapsedMs: number): string {
 		else if (i > hi) after += ch;
 		else shimmer += ch;
 	});
-	return `${CLAUDIO}${before}${CLAUDIO_SHIMMER}${shimmer}${CLAUDIO}${after}${FG_RESET}`;
+	const base = FG.claudio;
+	return `${base}${before}${FG.claudioShimmer}${shimmer}${base}${after}${FG_RESET}`;
 }
 
 function renderRow(width: number, now: number): string {
@@ -122,7 +121,7 @@ function renderRow(width: number, now: number): string {
 	animateTokens(now);
 	// Claude swaps the random verb for the in-progress todo's activeForm ("Running tests…").
 	const message = bus.get("currentTodo")?.activeForm ?? verb;
-	const head = `${CLAUDIO}${frameAt(elapsedMs)}${FG_RESET} ${renderMessage(message + ELLIPSIS, elapsedMs)}`;
+	const head = `${FG.claudio}${frameAt(elapsedMs)}${FG_RESET} ${renderMessage(message + ELLIPSIS, elapsedMs)}`;
 	// `esc to interrupt` lives in the footer hint; the spinner carries
 	// [dialog waiting] · elapsed · ↓ tokens · thinking | running tool for Ns | ran tool for Ns.
 	const items: string[] = [];

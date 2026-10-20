@@ -23,7 +23,6 @@ import { CURSOR_MARKER, matchesKey, renderFakeCursor, truncateToWidth, visibleWi
 import {
 	ANSI,
 	BG,
-	FG,
 	PERMISSION_MODE_CYCLE,
 	type PermissionMode,
 	bold,
@@ -43,13 +42,9 @@ import {
 
 // ───────────────────────────── colors (palette from shared.ts) ─────────────────────────────
 
-const PERM = FG.permission;
-const BG_ADDED = BG.diffAdded;
-const BG_REMOVED = BG.diffRemoved;
-const BG_ADDED_WORD = BG.diffAddedWord;
-const BG_REMOVED_WORD = BG.diffRemovedWord;
-const FG_RESET = ANSI.fgReset;
+// `FG` / `BG` resolve against the active Pi theme at access time: read them where you render.
 const BG_RESET = ANSI.bgReset;
+const perm = (s: string) => fg("permission", s);
 
 const errorText = (s: string) => fg("error", s);
 
@@ -328,7 +323,7 @@ function wordHighlight(removed: string, added: string): [string, string] {
 	if (pre + suf === 0) return [removed, added];
 	const mark = (s: string, bg: string, back: string) =>
 		s.slice(0, pre) + bg + s.slice(pre, s.length - suf) + back + s.slice(s.length - suf);
-	return [mark(removed, BG_REMOVED_WORD, BG_REMOVED), mark(added, BG_ADDED_WORD, BG_ADDED)];
+	return [mark(removed, BG.diffRemovedWord, BG.diffRemoved), mark(added, BG.diffAddedWord, BG.diffAdded)];
 }
 
 /** Render diff rows as `  <lineno> <marker>  <code>` lines with Claude's background colors, each exactly `width` cells. */
@@ -356,7 +351,7 @@ export function renderClaudioDiff(diff: string, width: number, maxRows = 24): st
 		if (row.kind === " ") {
 			out.push(`  ${dim(gutterText)} ${row.kind}  ${truncateToWidth(content, Math.max(1, rowWidth - gutter - 4), "…")}`);
 		} else {
-			const bg = row.kind === "+" ? BG_ADDED : BG_REMOVED;
+			const bg = row.kind === "+" ? BG.diffAdded : BG.diffRemoved;
 			out.push(`  ${bg}${padRightTo(body, rowWidth)}${BG_RESET}`);
 		}
 	}
@@ -447,8 +442,8 @@ function editSpec(path: string, edits: { oldText: string; newText: string }[], c
 			if (old === undefined) return [errorText("  File not found")];
 			const lines: string[] = [];
 			for (const e of edits.slice(0, 3)) {
-				for (const l of e.oldText.split("\n").slice(0, 6)) lines.push(`  ${BG_REMOVED}${padRightTo(`-  ${l}`, Math.max(10, w - 2))}${BG_RESET}`);
-				for (const l of e.newText.split("\n").slice(0, 6)) lines.push(`  ${BG_ADDED}${padRightTo(`+  ${l}`, Math.max(10, w - 2))}${BG_RESET}`);
+				for (const l of e.oldText.split("\n").slice(0, 6)) lines.push(`  ${BG.diffRemoved}${padRightTo(`-  ${l}`, Math.max(10, w - 2))}${BG_RESET}`);
+				for (const l of e.newText.split("\n").slice(0, 6)) lines.push(`  ${BG.diffAdded}${padRightTo(`+  ${l}`, Math.max(10, w - 2))}${BG_RESET}`);
 			}
 			lines.push(`  ${dim("(exact match not found in file — preview approximate)")}`);
 			return lines;
@@ -570,9 +565,9 @@ class PermissionDialog implements Component, Focusable {
 				const typed = this.feedback
 					? `${this.feedback}${marker}${renderFakeCursor(" ")}`
 					: `${marker}${renderFakeCursor(placeholder.charAt(0))}${dim(placeholder.slice(1))}`;
-				text = `${PERM}❯ 3. No, ${FG_RESET}${typed}`;
+				text = `${perm("❯ 3. No, ")}${typed}`;
 			} else if (sel) {
-				text = `${PERM}❯ ${i + 1}. ${label}${FG_RESET}`;
+				text = perm(`❯ ${i + 1}. ${label}`);
 			} else {
 				text = `  ${i + 1}. ${label}`;
 			}
