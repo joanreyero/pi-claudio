@@ -126,11 +126,11 @@ function renderRow(width: number, now: number): string {
 	// [dialog waiting] · elapsed · ↓ tokens · thinking | running tool for Ns | ran tool for Ns.
 	const items: string[] = [];
 	const dialog = bus.get("dialog");
-	if (dialog?.kind === "permission") items.push("dialog waiting");
+	if (dialog?.kind === "permission" || dialog?.kind === "ask") items.push("dialog waiting");
 	// Elapsed is hidden until the turn has run > 16 s, tokens arrived, or the model is thinking.
 	if (elapsedMs > 16_000 || shownTokens > 0 || thinking) items.push(formatDuration(elapsedMs));
 	if (shownTokens > 0) items.push(`↓ ${formatTokens(shownTokens)} tokens`);
-	if (toolStartedAt !== undefined && dialog?.kind !== "permission") items.push(`running tool for ${formatDuration(now - toolStartedAt)}`);
+	if (toolStartedAt !== undefined && dialog?.kind !== "permission" && dialog?.kind !== "ask") items.push(`running tool for ${formatDuration(now - toolStartedAt)}`);
 	else if (lastToolMs !== undefined) items.push(`ran tool for ${formatDuration(lastToolMs)}`);
 	else if (thinking) items.push("thinking");
 	// Drop items right-to-left when they do not fit (Claude does the same).
@@ -293,7 +293,7 @@ export function setupSpinner(pi: ExtensionAPI): void {
 	});
 	// Time spent in a permission dialog does not count as "running tool" (the task list does not reset it).
 	bus.subscribe("dialog", (current, previous) => {
-		if (current === null && previous?.kind === "permission" && toolStartedAt !== undefined) toolStartedAt = Date.now();
+		if (current === null && (previous?.kind === "permission" || previous?.kind === "ask") && toolStartedAt !== undefined) toolStartedAt = Date.now();
 	});
 	pi.on("tool_execution_end", () => {
 		if (toolStartedAt !== undefined) lastToolMs = Date.now() - toolStartedAt;

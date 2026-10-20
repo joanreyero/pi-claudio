@@ -128,6 +128,8 @@ export const ANSI = {
 	italicReset: "\x1b[23m",
 	strike: "\x1b[9m",
 	strikeReset: "\x1b[29m",
+	inverse: "\x1b[7m",
+	inverseReset: "\x1b[27m",
 	reset: "\x1b[0m",
 } as const;
 
@@ -557,7 +559,7 @@ export interface TodoItem {
 	activeForm?: string;
 }
 
-export type DialogState = { kind: "permission"; toolCallId: string } | { kind: "tasks" } | { kind: "rewind" };
+export type DialogState = { kind: "permission"; toolCallId: string } | { kind: "tasks" } | { kind: "rewind" } | { kind: "ask" };
 
 export interface SharedState {
 	permissionMode: PermissionMode;

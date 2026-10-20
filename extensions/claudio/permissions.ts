@@ -68,58 +68,139 @@ const READ_ONLY_TOOLS = new Set([
 	"workflow_status",
 	"workflow_catalog",
 	"subagents_inspect",
+	"ask_user_question",
 ]);
 
 /** Shell-ish built-ins that need a command classifier. */
 const SHELL_TOOLS = new Set(["bash", "powershell"]);
 
-/** Safe read-only commands (first word) that never need a prompt. */
+/**
+ * Read-only commands (first word) that never need a prompt. Deliberately conservative: anything that can
+ * run another program (`env`, `xargs`, `fd -x`, `awk system()`), edit in place (`sed -i`) or write a file
+ * on its own (`tee`, `sort -o`) is left out, or guarded by `UNSAFE_FLAGS` below.
+ */
 const SAFE_COMMANDS = new Set([
-	"ls", "cat", "rg", "grep", "egrep", "fgrep", "find", "fd", "pwd", "echo", "printf", "which", "whereis", "type",
+	"ls", "cat", "rg", "grep", "egrep", "fgrep", "find", "pwd", "echo", "printf", "which", "whereis", "type",
 	"head", "tail", "wc", "less", "more", "sort", "uniq", "cut", "tr", "diff", "cmp", "file", "stat", "du", "df",
-	"tree", "env", "printenv", "uname", "whoami", "id", "date", "cal", "uptime", "ps", "free", "true", "false",
-	"test", "[", "basename", "dirname", "realpath", "readlink", "md5sum", "sha256sum", "awk", "sed", "jq", "yq",
+	"tree", "printenv", "uname", "whoami", "id", "date", "cal", "uptime", "ps", "free", "true", "false",
+	"test", "[", "basename", "dirname", "realpath", "readlink", "md5sum", "sha256sum", "jq",
 	"column", "nl", "tac", "rev", "xxd", "od", "hexdump", "strings", "tput", "locale", "hostname", "nproc", "lsb_release",
 ]);
-const SAFE_GIT_SUBCOMMANDS = new Set(["status", "log", "diff", "show", "branch", "remote", "rev-parse", "blame", "describe", "ls-files", "shortlog", "tag", "stash list", "config --get"]);
-const SAFE_CARGO_NPM = new Set(["npm ls", "npm list", "npm view", "npm outdated", "pnpm ls", "pnpm list", "yarn list", "cargo tree", "cargo metadata", "go version", "go env", "node --version", "python --version", "bun --version"]);
 
-/** True when every pipeline segment is an allowlisted read-only command and nothing redirects to a file. */
-export function isSafeCommand(command: string): boolean {
+/** Flags that turn an otherwise read-only command into one that runs programs or writes files. */
+const UNSAFE_FLAGS: Record<string, RegExp> = {
+	find: /^-(delete|exec|execdir|ok|okdir|fprint0?|fprintf|fls)$/,
+	rg: /^--pre(=|$)/,
+	grep: /^--pre(=|$)/,
+	sort: /^(-o|--output(=|$))/,
+	tree: /^-o$/,
+	git: /^(-o|--output(=|$))/,
+	date: /^(-s|--set(=|$))/,
+};
+
+/** Git subcommands that only read. `branch`/`tag`/`remote` are checked separately (list forms only). */
+const SAFE_GIT_SUBCOMMANDS = new Set(["status", "log", "diff", "show", "rev-parse", "blame", "describe", "ls-files", "shortlog"]);
+const SAFE_GIT_TWO_WORDS = new Set(["stash list", "config --get", "remote -v", "remote show", "remote get-url"]);
+const SAFE_TOOL_QUERIES = new Set(["npm ls", "npm list", "npm view", "npm outdated", "pnpm ls", "pnpm list", "yarn list", "cargo tree", "cargo metadata", "go version", "go env", "node --version", "python --version", "bun --version"]);
+
+/** `git branch` / `git tag` with only listing flags (no names, no -d/-m/-u/…). */
+function isGitListOnly(args: string[]): boolean {
+	return args.every((a) => /^(-l|--list|-a|--all|-r|--remotes|-v|-vv|--verbose|--show-current|--contains(=.*)?|--merged(=.*)?|--no-merged(=.*)?|--sort=.*|--format=.*|--points-at(=.*)?|-n\d*|--column|--no-column|--color(=.*)?|--no-color)$/.test(a));
+}
+
+function isEnvAssignment(w: string): boolean {
+	return /^[A-Za-z_][A-Za-z0-9_]*=/.test(w);
+}
+
+interface SplitCommand {
+	/** Simple commands, one per pipeline / list element (`a | b && c; d & e`, newlines). */
+	segments: string[];
+	/** `$(…)`, backticks, `<(…)` or `>(…)` appear somewhere: another command may hide inside. */
+	substitution: boolean;
+	/** A `>`/`>>` redirect to something other than `/dev/null` or `2>&1`. */
+	fileRedirect: boolean;
+}
+
+/** Split a shell command into simple commands and note what the split cannot see through. */
+export function splitCommand(command: string): SplitCommand {
 	const text = command.trim();
-	if (!text) return true;
-	if (/[`]|\$\(/.test(text)) return false; // command substitution could hide anything
-	// redirections to files (allow 2>&1 and >/dev/null)
+	const substitution = /`|\$\(|<\(|>\(/.test(text);
 	const noSafeRedirect = text.replace(/2>&1/g, "").replace(/[12]?>>?\s*\/dev\/null/g, "");
-	if (/(^|[^<])>/.test(noSafeRedirect)) return false;
-	const segments = noSafeRedirect.split(/\|\|?|&&|;|\n/).map((s) => s.trim()).filter(Boolean);
-	if (segments.length === 0) return false;
-	for (const seg of segments) {
-		// strip leading env assignments like FOO=bar cmd
-		const words = seg.split(/\s+/).filter((w) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w));
-		const first = words[0] ?? "";
-		const firstTwo = `${first} ${words[1] ?? ""}`.trim();
-		const firstThree = `${firstTwo} ${words[2] ?? ""}`.trim();
-		if (SAFE_COMMANDS.has(first)) {
-			if ((first === "sed" || first === "awk") && /\s-i\b/.test(seg)) return false; // in-place edits
-			continue;
-		}
-		if (first === "git" && (SAFE_GIT_SUBCOMMANDS.has(words[1] ?? "") || SAFE_GIT_SUBCOMMANDS.has(`${words[1]} ${words[2]}`))) continue;
-		if (SAFE_CARGO_NPM.has(firstTwo) || SAFE_CARGO_NPM.has(firstThree)) continue;
+	const fileRedirect = /(^|[^<])>/.test(noSafeRedirect);
+	const segments = noSafeRedirect
+		.split(/\|\|?|\|&|&&|&|;|\n/)
+		.map((s) => s.trim())
+		.filter(Boolean);
+	return { segments, substitution, fileRedirect };
+}
+
+/** True when one simple command (no operators) is an allowlisted read-only command. */
+function isSafeSegment(seg: string): boolean {
+	const words = seg.split(/\s+/).filter((w) => !isEnvAssignment(w));
+	const first = words[0] ?? "";
+	const rest = words.slice(1);
+	const flagged = UNSAFE_FLAGS[first];
+	if (flagged && rest.some((w) => flagged.test(w))) return false;
+	if (SAFE_COMMANDS.has(first)) return true;
+	if (first === "git") {
+		const sub = rest[0] ?? "";
+		if (SAFE_GIT_SUBCOMMANDS.has(sub)) return true;
+		if (SAFE_GIT_TWO_WORDS.has(`${sub} ${rest[1] ?? ""}`)) return true;
+		if ((sub === "branch" || sub === "tag") && isGitListOnly(rest.slice(1))) return true;
+		if (sub === "remote" && rest.length === 1) return true;
 		return false;
 	}
-	return true;
+	const firstTwo = `${first} ${rest[0] ?? ""}`.trim();
+	const firstThree = `${firstTwo} ${rest[1] ?? ""}`.trim();
+	return SAFE_TOOL_QUERIES.has(firstTwo) || SAFE_TOOL_QUERIES.has(firstThree);
+}
+
+/**
+ * True when every simple command in `command` is an allowlisted read-only command and nothing
+ * (command substitution, process substitution, `>` redirects) can hide a write.
+ */
+export function isSafeCommand(command: string): boolean {
+	if (!command.trim()) return true;
+	const { segments, substitution, fileRedirect } = splitCommand(command);
+	if (substitution || fileRedirect || segments.length === 0) return false;
+	return segments.every(isSafeSegment);
 }
 
 const MULTI_WORD_PREFIX = new Set(["git", "npm", "pnpm", "yarn", "bun", "cargo", "docker", "kubectl", "pip", "pip3", "go", "make", "systemctl", "gh", "uv", "poetry", "mise"]);
 
-/** Command prefix used by "don't ask again for <prefix> commands" (first word, or two for git/npm/…). */
+/** Prefix of one simple command (first word, or two for git/npm/…). */
 export function commandPrefix(command: string): string {
-	const words = command.trim().split(/\s+/).filter((w) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w));
+	const words = command.trim().split(/\s+/).filter((w) => !isEnvAssignment(w));
 	const first = words[0] ?? "";
 	const second = words[1];
 	if (MULTI_WORD_PREFIX.has(first) && second && !second.startsWith("-")) return `${first} ${second}`;
 	return first;
+}
+
+/**
+ * Prefixes "don't ask again for <prefix> commands" would approve: one per simple command that is not
+ * already safe on its own. `ls & rm -rf x` → ["rm"]; `npm test && git push` → ["npm test", "git push"].
+ */
+export function commandPrefixes(command: string): string[] {
+	const { segments } = splitCommand(command);
+	const out: string[] = [];
+	for (const seg of segments) {
+		if (isSafeSegment(seg)) continue;
+		const p = commandPrefix(seg);
+		if (p && !out.includes(p)) out.push(p);
+	}
+	return out;
+}
+
+/**
+ * True when a previous "don't ask again" covers the whole command: no command substitution, and every
+ * simple command is either safe or starts with an approved prefix. Redirects are allowed here because
+ * the user explicitly approved a mutating command.
+ */
+export function isCommandPrefixApproved(command: string, approved: (prefix: string) => boolean): boolean {
+	const { segments, substitution } = splitCommand(command);
+	if (substitution || segments.length === 0) return false;
+	return segments.every((seg) => isSafeSegment(seg) || approved(commandPrefix(seg)));
 }
 
 type ToolKind = "readonly" | "shell" | "edit" | "write" | "destructive" | "other";
@@ -284,7 +365,8 @@ export function renderClaudioDiff(diff: string, width: number, maxRows = 24): st
  * `Yes, and don't ask again for <prefix> commands in <cwd>` — the cwd is `~`-abbreviated and then
  * shortened on path segments (`~/…/deep/dir`) so the label fits `maxWidth` (never below 24 cells for the path).
  */
-function dontAskAgainLabel(prefix: string, cwd: string, maxWidth: number): string {
+function dontAskAgainLabel(prefixes: string[], cwd: string, maxWidth: number): string {
+	const prefix = prefixes.join(", ");
 	const head = `Yes, and don't ask again for ${prefix} commands in `;
 	const room = Math.max(24, maxWidth - visibleWidth(head));
 	return `Yes, and don't ask again for ${bold(prefix)} commands in ${bold(shortenPath(cwd, room))}`;
@@ -330,7 +412,7 @@ function previewEdits(content: string, edits: { oldText: string; newText: string
 }
 
 function bashSpec(command: string, description: string | undefined, cwd: string): DialogSpec {
-	const prefix = commandPrefix(command);
+	const prefixes = commandPrefixes(command);
 	return {
 		title: "Bash command",
 		body: (w) => {
@@ -342,7 +424,7 @@ function bashSpec(command: string, description: string | undefined, cwd: string)
 			return lines;
 		},
 		question: "Do you want to proceed?",
-		option2: (max) => dontAskAgainLabel(prefix, cwd, max),
+		option2: (max) => dontAskAgainLabel(prefixes.length > 0 ? prefixes : [commandPrefix(command)], cwd, max),
 	};
 }
 
@@ -404,7 +486,7 @@ function genericSpec(toolName: string, input: Record<string, unknown>, cwd: stri
 			return lines;
 		},
 		question: "Do you want to proceed?",
-		option2: (max) => dontAskAgainLabel(display, cwd, max),
+		option2: (max) => dontAskAgainLabel([display], cwd, max),
 	};
 }
 
@@ -620,14 +702,16 @@ export function setupPermissions(pi: ExtensionAPI): void {
 			const command = String(input.command ?? "");
 			if (isSafeCommand(command)) return undefined;
 			if (mode === "plan") return { block: true, reason: `Cannot call ${event.toolName === "bash" ? "Bash" : event.toolName} while in plan mode.${PLAN_MODE_HINT}` };
-			const prefix = commandPrefix(command);
-			if (sessionBashPrefixes.has(prefix) || isPrefixAllowed(cwd, prefix)) return undefined;
+			if (isCommandPrefixApproved(command, (p) => sessionBashPrefixes.has(p) || isPrefixAllowed(cwd, p))) return undefined;
 			if (!ctx.hasUI) return undefined; // print/json mode: approve
 			const description = typeof input.description === "string" ? input.description : undefined;
 			const decision = await ask(ctx, event.toolCallId, bashSpec(command, description, cwd));
 			if (decision.choice === "always") {
-				sessionBashPrefixes.add(prefix);
-				allowPrefix(cwd, prefix);
+				const prefixes = commandPrefixes(command);
+				for (const prefix of prefixes.length > 0 ? prefixes : [commandPrefix(command)]) {
+					sessionBashPrefixes.add(prefix);
+					allowPrefix(cwd, prefix);
+				}
 			}
 			return decision.choice === "no" ? deny(ctx, decision.feedback) : undefined;
 		}
