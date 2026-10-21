@@ -23,7 +23,7 @@ pi-claudio makes [pi](https://pi.dev) look and feel exactly like Claude Code.
 
 ## Features
 
-- **Claude-style transcript** — `●` rows for every tool (`Read`, `Bash`, `Update` with a coloured diff, `Write`, `Search`, `List`, `Task`, MCP, generic), `⎿` result previews with `… +N lines`, **ctrl+o** to expand, the gerund spinner (`✻ Noodling…`), elapsed time and token count.
+- **Claude-style transcript** — `●` rows for every tool (`Read`, `Skill` for a `SKILL.md` read, `Bash`, `Update` with a coloured diff, `Write`, `Search`, `List`, `Task`, MCP, generic), `⎿` result previews with `… +N lines`, **ctrl+o** to expand, the gerund spinner (`✻ Noodling…`), elapsed time and token count.
 - **Prompt box and footer** — session cost, context usage, permission pill, background-task count; a matching dark theme.
 - **Permission modes** — **shift+tab** cycles `bypass permissions` (default) ↔ `plan`; `/permissions default` turns on the ask-before dialogs for shell, edit, write and MCP tools, with "don't ask again for `<prefix>` commands in `<cwd>`". `/add-dir <path>` adds working directories where edits are auto-accepted in `acceptEdits` mode.
 - **AskUserQuestion** — the model asks you 1–4 multiple-choice questions in a dialog (`ask_user_question`), with tabs, multi-select and free text.
