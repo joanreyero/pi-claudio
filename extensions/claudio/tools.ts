@@ -316,6 +316,14 @@ function argsSummary(args: unknown, keys?: string[], rename: Record<string, stri
 
 // ───────────────────────────── Read ─────────────────────────────
 
+// pi has no Skill tool: the model loads a skill by reading its SKILL.md, and pi's own read
+// renderer shows that as `[skill] <name>`. Show it as Claude's `● Skill(<name>)` row.
+function skillName(path: string): string | undefined {
+	const parts = path.split(/[\\/]/);
+	if (parts.length < 2 || parts[parts.length - 1] !== "SKILL.md") return undefined;
+	return parts[parts.length - 2] || undefined;
+}
+
 function readRenderers(): ToolRenderers {
 	return {
 		renderShell: "self",
@@ -323,7 +331,12 @@ function readRenderers(): ToolRenderers {
 			const args = (rawArgs ?? {}) as { path?: string };
 			startTimer(ctx);
 			const c = lazy(ctx);
-			c.set((w) => callLines(w, ctx.outputPad, statusOf(ctx), "Read", relPath(str(args.path), ctx.cwd) || "…"));
+			const skill = skillName(str(args.path));
+			c.set((w) =>
+				skill
+					? callLines(w, ctx.outputPad, statusOf(ctx), "Skill", skill)
+					: callLines(w, ctx.outputPad, statusOf(ctx), "Read", relPath(str(args.path), ctx.cwd) || "…"),
+			);
 			return c;
 		},
 		renderResult(result: AnyResult, options: ToolRenderResultOptions, _theme: Theme, ctx: RenderCtx<RowState>) {
@@ -351,8 +364,8 @@ function readRenderers(): ToolRenderers {
 			const body = rawBody.endsWith("\n") ? rawBody.slice(0, -1) : rawBody;
 			const lines = body === "" ? [] : body.split("\n");
 			const n = lines.length;
-			const header = `Read ${bold(String(n))} ${n === 1 ? "line" : "lines"}`;
 			const path = str(cargs.path);
+			const header = skillName(path) ? "Successfully loaded skill" : `Read ${bold(String(n))} ${n === 1 ? "line" : "lines"}`;
 			const offset = typeof cargs.offset === "number" && cargs.offset > 0 ? cargs.offset : 1;
 			c.set((w) => {
 				if (n === 0) return resultLines(w, ctx.outputPad, [header]);
