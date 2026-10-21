@@ -32,7 +32,7 @@ pi-claudio makes [pi](https://pi.dev) look and feel exactly like Claude Code.
 - **Esc Esc rewind** — pick an earlier message and restore the conversation, the files (per-turn checkpoints before every edit/write), or both.
 - **Todo list** — `todo_write` rendered as `● Update Todos` with a `☒`/`☐` checklist; the in-progress item replaces the spinner verb.
 - **`?` shortcuts panel**, MCP tool rendering (`● <server> · <tool>(args)`), and **workflows** (`● Task(name)` with a live agent tree) via [pi-extensible-workflows](https://github.com/vekexasia/pi-extensible-workflows), installed by `/claudio setup` — why that one: [docs/workflows-eval.md](docs/workflows-eval.md).
-- **Herdr** — inside a [herdr](https://herdr.dev) pane, a permission prompt or AskUserQuestion marks the agent **blocked** in herdr's sidebar, and the pane is named after the task (see [Herdr](#herdr)).
+- **Herdr** — inside a [herdr](https://herdr.dev) pane, a permission prompt or AskUserQuestion marks the agent **blocked** in herdr's sidebar, and the pane gets one model-written name per session (see [Herdr](#herdr)).
 - **Follows your Pi theme**: every colour (bullets, spinner, diffs, dialogs, footer pill) is resolved from the active Pi theme (`/settings` → Theme: `system`, `dark`, `light`, `light/dark` or a custom one), so pi-claudio works on light terminals too. The bundled **`claudio`** theme reproduces Claude Code's exact dark palette.
 
 No build step: pi loads the TypeScript directly.
@@ -232,7 +232,7 @@ MCP tools without `readOnlyHint` are treated as destructive by the permission ga
 
 ## Herdr
 
-[Herdr](https://herdr.dev) shows every agent pane as working, blocked or idle. Its Pi integration (`herdr integration install pi`) reports working/idle from pi's lifecycle, but only switches to **blocked** when an extension emits `herdr:blocked` on `pi.events`, and nothing in pi does by default. pi-claudio emits it while a permission prompt or an AskUserQuestion dialog is open, so the sidebar tells you which Pi is waiting for an answer. It also **names the pane** after the task: the first prompt of the session (first words), then the in-progress todo item while a todo list runs, back to the prompt when the list is done. Needs both: herdr's Pi integration and pi running inside a herdr pane (`HERDR_ENV=1`); elsewhere the module does nothing.
+[Herdr](https://herdr.dev) shows every agent pane as working, blocked or idle. Its Pi integration (`herdr integration install pi`) reports working/idle from pi's lifecycle, but only switches to **blocked** when an extension emits `herdr:blocked` on `pi.events`, and nothing in pi does by default. pi-claudio emits it while a permission prompt or an AskUserQuestion dialog is open, so the sidebar tells you which Pi is waiting for an answer. It also **names the pane**, once per session: the first prompt's first words at once, then a 3–5 word title the current model writes from that prompt (one tiny request), which is also stored as the Pi session name (shown by `/resume`; a resumed session keeps its pane name; a session named with `/name` uses that). The name describes what the session is for and never changes with the current step — the status dot already shows activity. Needs both: herdr's Pi integration and pi running inside a herdr pane (`HERDR_ENV=1`); elsewhere the module does nothing.
 
 ## Workflows
 
