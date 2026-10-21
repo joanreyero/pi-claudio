@@ -24,9 +24,10 @@ import type {
 	ToolRenderResultOptions,
 	Theme,
 } from "@earendil-works/pi-coding-agent";
-import { getLanguageFromPath, highlightCode, keyText } from "@earendil-works/pi-coding-agent";
+import { getLanguageFromPath, getReadmePath, highlightCode, keyText } from "@earendil-works/pi-coding-agent";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { Component } from "@earendil-works/pi-tui";
+import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { getCapabilities, getImageDimensions, imageFallback, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { AskDetails } from "./ask.ts";
 import { ANSI, BG, RESULT_INDENT, bold, bus, dim, fg, formatDuration, formatTokens, moreLines, pluralize as plural, relPath as sharedRelPath } from "./shared.ts";
@@ -324,6 +325,36 @@ function skillName(path: string): string | undefined {
 	return parts[parts.length - 2] || undefined;
 }
 
+// pi's read renderer also names two other kinds of read instead of showing a bare path:
+// its own docs (`read docs docs/skills.md`) and the instruction files it loads as context
+// (`read resource AGENTS.md`). Keep both as their own rows.
+const INSTRUCTION_FILES = new Set(["AGENTS.override.md", "AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"]);
+
+function piDocsPath(absolute: string): string | undefined {
+	let root: string;
+	try {
+		root = dirname(getReadmePath());
+	} catch {
+		return undefined;
+	}
+	const rel = relative(root, absolute);
+	if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return undefined;
+	const label = rel.split(sep).join("/");
+	return label === "README.md" || label.startsWith("docs/") || label.startsWith("examples/") ? label : undefined;
+}
+
+function readRow(path: string, cwd: string): { name: string; args: string } {
+	const skill = skillName(path);
+	if (skill) return { name: "Skill", args: skill };
+	const shown = relPath(path, cwd) || "…";
+	if (!path) return { name: "Read", args: shown };
+	const absolute = resolve(cwd, path);
+	const docs = piDocsPath(absolute);
+	if (docs) return { name: "Read pi docs", args: docs };
+	if (INSTRUCTION_FILES.has(basename(absolute))) return { name: "Read instructions", args: shown };
+	return { name: "Read", args: shown };
+}
+
 function readRenderers(): ToolRenderers {
 	return {
 		renderShell: "self",
@@ -331,12 +362,8 @@ function readRenderers(): ToolRenderers {
 			const args = (rawArgs ?? {}) as { path?: string };
 			startTimer(ctx);
 			const c = lazy(ctx);
-			const skill = skillName(str(args.path));
-			c.set((w) =>
-				skill
-					? callLines(w, ctx.outputPad, statusOf(ctx), "Skill", skill)
-					: callLines(w, ctx.outputPad, statusOf(ctx), "Read", relPath(str(args.path), ctx.cwd) || "…"),
-			);
+			const row = readRow(str(args.path), ctx.cwd);
+			c.set((w) => callLines(w, ctx.outputPad, statusOf(ctx), row.name, row.args));
 			return c;
 		},
 		renderResult(result: AnyResult, options: ToolRenderResultOptions, _theme: Theme, ctx: RenderCtx<RowState>) {
