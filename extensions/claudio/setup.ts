@@ -8,8 +8,10 @@
  * is active; `light/claudio` is only written when the user has not chosen a theme.
  *
  * `/claudio setup` merges those into `~/.pi/agent/settings.json` and `~/.pi/agent/keybindings.json`
- * (other keys are kept) and installs the workflow package pi-claudio ships with (`npm:pi-extensible-workflows`,
- * see docs/workflows-eval.md) when it is missing. `/claudio status` reports what is applied. On session start a
+ * (other keys are kept), installs the workflow package pi-claudio ships with (`npm:pi-extensible-workflows`,
+ * see docs/workflows-eval.md) when it is missing, and turns off that package's live widget below the editor
+ * (`backgroundWidget: false` in `~/.pi/agent/pi-extensible-workflows/settings.json`): the footer counts
+ * running workflows instead and ↓ opens them (workflows.ts). `/claudio status` reports what is applied. On session start a
  * single hint is shown when the setup is incomplete.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -44,11 +46,19 @@ export const DEFAULT_THEME = "light/claudio";
 /** The workflow package pi-claudio recommends and installs (the winner of docs/workflows-eval.md). */
 export const WORKFLOWS_PACKAGE = "npm:pi-extensible-workflows";
 
+/** Settings written to the workflow package's own global settings file. */
+export const RECOMMENDED_WORKFLOW_SETTINGS: Readonly<Json> = {
+	backgroundWidget: false,
+};
+
 function settingsPath(): string {
 	return join(getAgentDir(), "settings.json");
 }
 function keybindingsPath(): string {
 	return join(getAgentDir(), "keybindings.json");
+}
+function workflowSettingsPath(): string {
+	return join(getAgentDir(), "pi-extensible-workflows", "settings.json");
 }
 
 function readJson(file: string): Json {
@@ -111,6 +121,11 @@ export function checks(): Check[] {
 	}
 	const wf = workflowsInstalled();
 	out.push({ label: `packages.${WORKFLOWS_PACKAGE}`, ok: wf, current: wf ? "installed" : "(missing)", wanted: "installed (/claudio setup runs pi install)" });
+	const wfSettings = readJson(workflowSettingsPath());
+	for (const [k, wanted] of Object.entries(RECOMMENDED_WORKFLOW_SETTINGS)) {
+		const current = wfSettings[k];
+		out.push({ label: `workflows.${k}`, ok: JSON.stringify(current) === JSON.stringify(wanted), current: fmt(current), wanted: fmt(wanted) });
+	}
 	return out;
 }
 
@@ -118,7 +133,7 @@ export function isSetUp(): boolean {
 	return checks().every((c) => c.ok);
 }
 
-function applySetup(): { settingsChanged: string[]; keybindingsChanged: string[] } {
+function applySetup(): { settingsChanged: string[]; keybindingsChanged: string[]; workflowsChanged: string[] } {
 	const settings = readJson(settingsPath());
 	const settingsChanged: string[] = [];
 	if (settings.theme === undefined) {
@@ -148,7 +163,21 @@ function applySetup(): { settingsChanged: string[]; keybindingsChanged: string[]
 			writeJson(keybindingsPath(), ordered);
 		} else writeJson(keybindingsPath(), keys);
 	}
-	return { settingsChanged, keybindingsChanged };
+	const wfSettings = readJson(workflowSettingsPath());
+	const workflowsChanged: string[] = [];
+	for (const [k, v] of Object.entries(RECOMMENDED_WORKFLOW_SETTINGS)) {
+		if (JSON.stringify(wfSettings[k]) !== JSON.stringify(v)) {
+			wfSettings[k] = v;
+			workflowsChanged.push(k);
+		}
+	}
+	if (workflowsChanged.length) writeJson(workflowSettingsPath(), wfSettings);
+	return { settingsChanged, keybindingsChanged, workflowsChanged };
+}
+
+/** True when the workflow package's widget below the editor is off. */
+export function workflowWidgetOff(): boolean {
+	return readJson(workflowSettingsPath()).backgroundWidget === false;
 }
 
 const USAGE = "Usage: /claudio setup — write the recommended settings and keybindings and install pi-extensible-workflows · /claudio status — show what is applied";
@@ -163,8 +192,12 @@ export function setupClaudioCommand(pi: ExtensionAPI): void {
 		handler: async (args, ctx) => {
 			const sub = args.trim().split(/\s+/)[0] ?? "";
 			if (sub === "setup") {
-				const { settingsChanged, keybindingsChanged } = applySetup();
-				const changed = [...settingsChanged.map((k) => `settings.${k}`), ...keybindingsChanged.map((k) => `keybindings.${k}`)];
+				const { settingsChanged, keybindingsChanged, workflowsChanged } = applySetup();
+				const changed = [
+					...settingsChanged.map((k) => `settings.${k}`),
+					...keybindingsChanged.map((k) => `keybindings.${k}`),
+					...workflowsChanged.map((k) => `workflows.${k}`),
+				];
 				let workflowsNote = "";
 				if (!workflowsInstalled()) {
 					ctx.ui.notify(`pi-claudio: installing ${WORKFLOWS_PACKAGE} (pi install)…`, "info");
@@ -181,7 +214,7 @@ export function setupClaudioCommand(pi: ExtensionAPI): void {
 					return;
 				}
 				ctx.ui.notify(
-					`pi-claudio: wrote ${changed.join(", ")} to ~/.pi/agent/settings.json and keybindings.json.\n` +
+					`pi-claudio: wrote ${changed.join(", ")} (~/.pi/agent/settings.json, keybindings.json, pi-extensible-workflows/settings.json).\n` +
 						"Restart pi (or run /reload) to apply the settings, keybindings and packages." +
 						workflowsNote,
 					workflowsNote ? "warning" : "info",
@@ -205,7 +238,7 @@ export function setupClaudioCommand(pi: ExtensionAPI): void {
 
 	pi.on("session_start", (_event, ctx) => {
 		if (!ctx.hasUI || hinted) return;
-		if (shiftTabIsFree() && workflowsInstalled()) return;
+		if (shiftTabIsFree() && workflowsInstalled() && workflowWidgetOff()) return;
 		hinted = true;
 		const missingWf = workflowsInstalled() ? "" : " (also installs pi-extensible-workflows for /workflow and ● Task runs)";
 		ctx.ui.notify(`Run /claudio setup to finish installing pi-claudio${missingWf}`, "info");

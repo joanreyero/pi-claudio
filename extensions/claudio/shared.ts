@@ -564,6 +564,8 @@ export type DialogState = { kind: "permission"; toolCallId: string } | { kind: "
 export interface SharedState {
 	permissionMode: PermissionMode;
 	backgroundTaskCount: number;
+	/** Unfinished workflow runs of this session (workflows.ts). */
+	workflowCount: number;
 	/** The in-progress todo; the spinner shows its `activeForm` instead of a random verb. */
 	currentTodo: TodoItem | null;
 	/** Whether tool outputs are globally expanded (ctrl+o). */
@@ -578,6 +580,7 @@ export type StateListener<K extends StateKey> = (value: SharedState[K], previous
 const state: SharedState = {
 	permissionMode: "bypassPermissions",
 	backgroundTaskCount: 0,
+	workflowCount: 0,
 	currentTodo: null,
 	toolsExpanded: false,
 	dialog: null,
@@ -667,6 +670,8 @@ export function cyclePermissionMode(): PermissionMode {
 export const actions: {
 	/** Open the Background tasks dialog (`/tasks`); set by background.ts. */
 	openTasks?: () => void;
+	/** Open the workflow run browser (`/workflow`); set by workflows.ts. */
+	openWorkflows?: () => void;
 	/** Open the Rewind picker (`/rewind`, Esc Esc on an empty prompt); set by rewind.ts. */
 	openRewind?: () => void;
 } = {};
