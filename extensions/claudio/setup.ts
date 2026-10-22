@@ -43,6 +43,15 @@ export const RECOMMENDED_KEYBINDINGS: Readonly<Record<string, string>> = {
  */
 export const DEFAULT_THEME = "light/claudio";
 
+/**
+ * `terminal` settings, merged into the object pi keeps there. `clearOnShrink` clears the rows left
+ * empty when the screen gets shorter (the /workflow view or a dialog closing), so the prompt goes back
+ * to the bottom instead of staying where the taller view ended.
+ */
+export const RECOMMENDED_TERMINAL_SETTINGS: Readonly<Json> = {
+	clearOnShrink: true,
+};
+
 /** The workflow package pi-claudio recommends and installs (the winner of docs/workflows-eval.md). */
 export const WORKFLOWS_PACKAGE = "npm:pi-extensible-workflows";
 
@@ -95,6 +104,12 @@ export function workflowsInstalled(): boolean {
 	return packages.some((p) => (typeof p === "string" ? p : (p as { source?: unknown } | null)?.source) === WORKFLOWS_PACKAGE);
 }
 
+/** The `terminal` object of pi's settings (a copy; empty when unset or not an object). */
+function terminalSettings(settings: Json): Json {
+	const t = settings.terminal;
+	return t && typeof t === "object" && !Array.isArray(t) ? { ...(t as Json) } : {};
+}
+
 interface Check {
 	label: string;
 	ok: boolean;
@@ -113,6 +128,11 @@ export function checks(): Check[] {
 	for (const [k, wanted] of Object.entries(RECOMMENDED_SETTINGS)) {
 		const current = settings[k];
 		out.push({ label: `settings.${k}`, ok: JSON.stringify(current) === JSON.stringify(wanted), current: fmt(current), wanted: fmt(wanted) });
+	}
+	const terminal = terminalSettings(settings);
+	for (const [k, wanted] of Object.entries(RECOMMENDED_TERMINAL_SETTINGS)) {
+		const current = terminal[k];
+		out.push({ label: `settings.terminal.${k}`, ok: JSON.stringify(current) === JSON.stringify(wanted), current: fmt(current), wanted: fmt(wanted) });
 	}
 	for (const [k, wanted] of Object.entries(RECOMMENDED_KEYBINDINGS)) {
 		const current = keys[k];
@@ -144,6 +164,14 @@ function applySetup(): { settingsChanged: string[]; keybindingsChanged: string[]
 		if (JSON.stringify(settings[k]) !== JSON.stringify(v)) {
 			settings[k] = v;
 			settingsChanged.push(k);
+		}
+	}
+	const terminal = terminalSettings(settings);
+	for (const [k, v] of Object.entries(RECOMMENDED_TERMINAL_SETTINGS)) {
+		if (JSON.stringify(terminal[k]) !== JSON.stringify(v)) {
+			terminal[k] = v;
+			settings.terminal = terminal;
+			settingsChanged.push(`terminal.${k}`);
 		}
 	}
 	if (settingsChanged.length) writeJson(settingsPath(), settings);
@@ -178,6 +206,11 @@ function applySetup(): { settingsChanged: string[]; keybindingsChanged: string[]
 /** True when the workflow package's widget below the editor is off. */
 export function workflowWidgetOff(): boolean {
 	return readJson(workflowSettingsPath()).backgroundWidget === false;
+}
+
+/** True when pi clears the rows a shorter screen leaves empty (`terminal.clearOnShrink`). */
+export function clearOnShrinkOn(): boolean {
+	return terminalSettings(readJson(settingsPath())).clearOnShrink === true;
 }
 
 const USAGE = "Usage: /claudio setup — write the recommended settings and keybindings and install pi-extensible-workflows · /claudio status — show what is applied";
@@ -238,7 +271,7 @@ export function setupClaudioCommand(pi: ExtensionAPI): void {
 
 	pi.on("session_start", (_event, ctx) => {
 		if (!ctx.hasUI || hinted) return;
-		if (shiftTabIsFree() && workflowsInstalled() && workflowWidgetOff()) return;
+		if (shiftTabIsFree() && workflowsInstalled() && workflowWidgetOff() && clearOnShrinkOn()) return;
 		hinted = true;
 		const missingWf = workflowsInstalled() ? "" : " (also installs pi-extensible-workflows for /workflow and ● Task runs)";
 		ctx.ui.notify(`Run /claudio setup to finish installing pi-claudio${missingWf}`, "info");

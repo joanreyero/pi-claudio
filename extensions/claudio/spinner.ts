@@ -6,7 +6,8 @@
  * Pi's own working row (`Loader`) is hidden (`setWorkingVisible(false)`) because it renders
  * with a one-cell left padding and may be embedded in the editor border; instead we draw the
  * row ourselves as an `aboveEditor` widget:
- * after the transcript, one blank line above, directly on top of the prompt box.
+ * after the transcript, one blank line above, directly on top of the prompt box. While idle the row
+ * stays as a blank line, so the prompt keeps its place when a turn starts and ends.
  *
  * Behaviour:
  *  - frames `· ✢ ✳ ✶ ✻ ✽` (`*` replaces `✳` outside ghostty), eased
@@ -167,7 +168,9 @@ class SpinnerWidget implements Component {
 	invalidate(): void {}
 
 	render(width: number): string[] {
-		if (!active || compacting) return [];
+		// Pi draws its own row while compacting.
+		if (compacting) return [];
+		if (!active) return [""];
 		return [renderRow(width, Date.now())];
 	}
 
@@ -244,8 +247,8 @@ export function setupSpinner(pi: ExtensionAPI): void {
 		compacting = false;
 		// Hide Pi's own working row; we draw ours as a widget just above the editor.
 		ctx.ui.setWorkingVisible(false);
-		// Register the widget once, so it keeps its slot (before widgets added later) and renders
-		// nothing while idle. The animation timer only runs between agent_start and agent_end.
+		// Register the widget once, so it keeps its slot (before widgets added later) and holds its
+		// row while idle. The animation timer only runs between agent_start and agent_end.
 		ctx.ui.setWidget(
 			WIDGET_KEY,
 			(tui) => {
