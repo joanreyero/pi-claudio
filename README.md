@@ -24,7 +24,7 @@ pi-claudio makes [pi](https://pi.dev) look and feel exactly like Claude Code.
 ## Features
 
 - **Claude-style transcript** — `●` rows for every tool (`Read`, `Skill` for a `SKILL.md` read, `Bash`, `Update` with a coloured diff, `Write`, `Search`, `List`, `Task`, MCP, generic), `⎿` result previews with `… +N lines`, **ctrl+o** to expand, the gerund spinner (`✻ Noodling…`), elapsed time and token count.
-- **Prompt box and footer** — session cost, context usage, permission pill, background-task count; a matching dark theme.
+- **Prompt box and footer** — session cost, context usage, permission pill, running workflows and background tasks (**↓** on an empty prompt opens them), other extensions' statuses (aweb's connection state, for one); a matching dark theme. Console output from other extensions goes through pi's notices instead of being written over the prompt box.
 - **Permission modes** — **shift+tab** cycles `bypass permissions` (default) ↔ `plan`; `/permissions default` turns on the ask-before dialogs for shell, edit, write and MCP tools, with "don't ask again for `<prefix>` commands in `<cwd>`". `/add-dir <path>` adds working directories where edits are auto-accepted in `acceptEdits` mode.
 - **AskUserQuestion** — the model asks you 1–4 multiple-choice questions in a dialog (`ask_user_question`), with tabs, multi-select and free text.
 - **Background commands that wake the agent** — `bash` with `run_in_background` / `wake: true`, `bash_output`, `kill_shell`, **ctrl+b**, `/tasks`. Wakes inject new output and start a turn: no polling (after [pi-bgwatch](https://github.com/josep-reyero/pi-bgwatch)).
@@ -51,7 +51,7 @@ Then inside pi:
 /claudio setup
 ```
 
-It merges the recommended settings and keybindings into your config (other keys are kept), sets `theme` to `light/claudio` only if you have not chosen one yet (Pi's `light` theme on light terminals, the bundled Claude Code palette on dark ones), installs `npm:pi-extensible-workflows` if missing, and asks you to `/reload`. `/claudio status` shows what is applied.
+It merges the recommended settings and keybindings into your config (other keys are kept), sets `theme` to `light/claudio` only if you have not chosen one yet (Pi's `light` theme on light terminals, the bundled Claude Code palette on dark ones), installs `npm:pi-extensible-workflows` if missing, turns off its live widget below the prompt (the footer counts running workflows instead), and asks you to `/reload`. `/claudio status` shows what is applied.
 
 ## Configuration
 
@@ -82,6 +82,14 @@ and to `~/.pi/agent/keybindings.json`:
 ```
 
 `app.thinking.cycle` moves to alt+t so shift+tab can cycle permission modes. If you see a `ctrl+b` conflict with `tui.editor.cursorLeft`, add `"tui.editor.cursorLeft": ["left"]`.
+
+and to `~/.pi/agent/pi-extensible-workflows/settings.json` (the workflow package's own file):
+
+```json
+{
+  "backgroundWidget": false
+}
+```
 
 Everything pi-claudio persists (allow-lists, file checkpoints) lives in `~/.pi/agent/claudio/`, never inside the package directory.
 
@@ -247,7 +255,7 @@ Claude Code's `Task` fan-out (parallel sub-agents, pipelines, reviews) comes fro
      └ Running…
 ```
 
-`/workflow` opens the inline run browser; the bundled `/review`, `/parallel-review`, `/council`, `/scout`, `/deep-research` templates and the `subagents_*` tools work unchanged.
+While runs are under way the footer shows `N workflows · ↓ to manage`; **↓** on an empty prompt (or `/workflow`) opens the inline run browser, and when background tasks run too it asks which list to open. The package's own live widget below the prompt moved the prompt up and down as runs started and ended, so `/claudio setup` turns it off (`"backgroundWidget": false` in `~/.pi/agent/pi-extensible-workflows/settings.json`; set it back to `true` to get the widget again). The bundled `/review`, `/parallel-review`, `/council`, `/scout`, `/deep-research` templates and the `subagents_*` tools work unchanged.
 
 ### Claude Code agents (`agentType`)
 

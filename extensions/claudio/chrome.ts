@@ -2,7 +2,7 @@
  * chrome.ts — the "chrome": welcome header, prompt box (editor), footer hint line
  * and the "?" shortcuts panel. Layout inspired by Claude Code's UI.
  *
- * Reads from the shared bus (shared.ts): `permissionMode`, `backgroundTaskCount`, `dialog`.
+ * Reads from the shared bus (shared.ts): `permissionMode`, `backgroundTaskCount`, `workflowCount`, `dialog`.
  */
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -45,7 +45,27 @@ const local = {
 	lastEscape: 0,
 	requestRender: () => {},
 	setHelpWidget: (_show: boolean) => {},
+	/** `ctx.ui.select` of the session, for ↓ when both background tasks and workflows are running. */
+	select: undefined as ((title: string, options: string[]) => Promise<string | undefined>) | undefined,
 };
+
+/** ↓ on an empty prompt: the one list there is, or a choice when both background tasks and workflows run. */
+function openBackground(): boolean {
+	const tasks = bus.get("backgroundTaskCount") > 0 && actions.openTasks;
+	const workflows = bus.get("workflowCount") > 0 && actions.openWorkflows;
+	if (tasks && workflows && local.select) {
+		const tasksLabel = "Background tasks";
+		void local.select("Manage", [tasksLabel, "Workflows"]).then((choice) => {
+			if (choice === tasksLabel) actions.openTasks?.();
+			else if (choice) actions.openWorkflows?.();
+		});
+		return true;
+	}
+	const open = tasks || workflows;
+	if (!open) return false;
+	open();
+	return true;
+}
 
 function isBashMode(text: string): boolean {
 	return text.trimStart().startsWith("!");
@@ -229,11 +249,8 @@ class ClaudioEditor extends CustomEditor {
 				local.lastEscape = 0;
 			}
 		}
-		// ↓ on an empty prompt opens the background task list — Claude's `(down to manage)`.
-		if (matchesKey(data, "down") && text.length === 0 && !this.isShowingAutocomplete() && bus.get("backgroundTaskCount") > 0 && actions.openTasks) {
-			actions.openTasks();
-			return;
-		}
+		// ↓ on an empty prompt opens the background tasks or the workflows — Claude's `↓ to manage`.
+		if (matchesKey(data, "down") && text.length === 0 && !this.isShowingAutocomplete() && openBackground()) return;
 		super.handleInput(data);
 		const after = this.getText();
 		if (after !== local.editorText) {
@@ -282,6 +299,7 @@ class ClaudioFooter implements Component {
 	constructor(
 		private readonly tui: TUI,
 		private readonly ctx: ExtensionContext,
+		private readonly data: ReadonlyFooterDataProvider,
 	) {
 		this.unsubscribe = bus.subscribeAll(() => this.tui.requestRender());
 	}
@@ -332,14 +350,26 @@ class ClaudioFooter implements Component {
 		return text;
 	}
 
+	/** Other extensions' `ctx.ui.setStatus` texts (aweb's connection state, for one), one line each. */
+	private statuses(): string[] {
+		return [...this.data.getExtensionStatuses().values()]
+			.map((s) => s.replace(/[\r\n\t]+/g, " ").trim())
+			.filter(Boolean);
+	}
+
 	private rightItems(): string[] {
-		const items: string[] = [];
+		// Leftmost goes first when the row is short: statuses, then the usage stats.
+		const items: string[] = [...this.statuses()];
 		const stats = this.sessionStats();
 		if (stats) items.push(dim(stats));
 		const pill = modePill();
 		if (pill) items.push(pill);
 		const tasks = bus.get("backgroundTaskCount");
-		if (tasks > 0) items.push(dim(`${tasks} background ${tasks === 1 ? "task" : "tasks"}`));
+		const workflows = bus.get("workflowCount");
+		const running: string[] = [];
+		if (workflows > 0) running.push(`${workflows} ${workflows === 1 ? "workflow" : "workflows"}`);
+		if (tasks > 0) running.push(`${tasks} background ${tasks === 1 ? "task" : "tasks"}`);
+		if (running.length) items.push(dim(`${running.join(" · ")} · ↓ to manage`));
 		const usage = this.ctx.getContextUsage();
 		if (usage?.percent != null) {
 			const left = Math.max(0, Math.round(100 - usage.percent));
@@ -375,7 +405,7 @@ class ClaudioFooter implements Component {
 // 4. "?" shortcuts panel
 // ---------------------------------------------------------------------------------------------
 const HELP_COLUMNS: readonly (readonly string[])[] = [
-	["! for shell mode", "/ for commands", "@ for file paths", "/add-dir for more dirs"],
+	["! for shell mode", "/ for commands", "@ for file paths", "/add-dir for more dirs", "↓ for background work"],
 	["double tap esc to clear input", "shift + tab to auto-accept edits", "ctrl + o for verbose output", "ctrl + t to toggle tasks", "esc esc to rewind to a message"],
 	[
 		"ctrl + _ to undo",
@@ -434,6 +464,7 @@ export function setupChrome(pi: ExtensionAPI): void {
 		const billing = billingLabel(ctx);
 		const cwd = ctx.cwd;
 
+		local.select = (title, options) => ctx.ui.select(title, options);
 		local.setHelpWidget = (show) =>
 			ctx.ui.setWidget("claudio-shortcuts", show ? () => new HelpPanel() : undefined, { placement: "belowEditor" });
 
@@ -445,9 +476,9 @@ export function setupChrome(pi: ExtensionAPI): void {
 			local.requestRender = () => tui.requestRender();
 			return new ClaudioEditor(tui, theme, kb, cwd);
 		});
-		ctx.ui.setFooter((tui, _theme: Theme, _data: ReadonlyFooterDataProvider) => {
+		ctx.ui.setFooter((tui, _theme: Theme, data: ReadonlyFooterDataProvider) => {
 			local.requestRender = () => tui.requestRender();
-			return new ClaudioFooter(tui, ctx);
+			return new ClaudioFooter(tui, ctx, data);
 		});
 	});
 

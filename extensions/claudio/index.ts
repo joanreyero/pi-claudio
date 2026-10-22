@@ -16,7 +16,9 @@
  *  - herdr only subscribes to the bus, so its position does not matter;
  *  - agents (Claude Code agentType for workflows) registers with pi-extensible-workflows' registry, which
  *    freezes at session_start, so it runs at factory time like everything else; position is irrelevant;
- *  - the /claudio setup command is independent and goes first so its session_start hint is registered early.
+ *  - the /claudio setup command is independent and goes first so its session_start hint is registered early;
+ *  - stray (console output kept off the TUI) right after it, so the other session_start handlers already log through it;
+ *  - workflows (the footer's workflow count, ↓ → /workflow) before chrome, which reads what it publishes.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { setupClaudeAgents } from "./agents.ts";
@@ -32,8 +34,10 @@ import { setupRewind } from "./rewind.ts";
 import { setupClaudioCommand } from "./setup.ts";
 import { bindTheme } from "./shared.ts";
 import { setupSpinner } from "./spinner.ts";
+import { setupStray } from "./stray.ts";
 import { setupTodo } from "./todo.ts";
 import { setupToolRenderers } from "./tools.ts";
+import { setupWorkflows } from "./workflows.ts";
 
 export default function (pi: ExtensionAPI): void {
 	// Colours: every module paints through shared.ts, which resolves its palette against the active Pi
@@ -43,6 +47,7 @@ export default function (pi: ExtensionAPI): void {
 		bindTheme(ctx.hasUI ? ctx.ui.theme : undefined);
 	});
 	setupClaudioCommand(pi);
+	setupStray(pi);
 	setupDirs(pi);
 	setupPermissions(pi);
 	setupBackground(pi);
@@ -53,6 +58,7 @@ export default function (pi: ExtensionAPI): void {
 	setupRewind(pi);
 	setupSpinner(pi);
 	setupMessages(pi);
+	setupWorkflows(pi);
 	setupChrome(pi);
 	setupHerdr(pi);
 	setupClaudeAgents(pi);
