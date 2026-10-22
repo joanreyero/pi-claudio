@@ -33,6 +33,7 @@ pi-claudio makes [pi](https://pi.dev) look and feel exactly like Claude Code.
 - **Todo list** — `todo_write` rendered as `● Update Todos` with a `☒`/`☐` checklist; the in-progress item replaces the spinner verb.
 - **`?` shortcuts panel**, MCP tool rendering (`● <server> · <tool>(args)`), and **workflows** (`● Task(name)` with a live agent tree) via [pi-extensible-workflows](https://github.com/vekexasia/pi-extensible-workflows), installed by `/claudio setup` — why that one: [docs/workflows-eval.md](docs/workflows-eval.md).
 - **Herdr** — inside a [herdr](https://herdr.dev) pane, a permission prompt or AskUserQuestion marks the agent **blocked** in herdr's sidebar, and the pane gets one model-written name per session (see [Herdr](#herdr)).
+- **Claude Code agents in workflows** — `agent(prompt, { agentType: "name" })` loads `.claude/agents/<name>.md` (project, user or `<plugin>:<name>`): prompt, tools and model from the file (see [Claude Code agents](#claude-code-agents-agenttype)).
 - **Follows your Pi theme**: every colour (bullets, spinner, diffs, dialogs, footer pill) is resolved from the active Pi theme (`/settings` → Theme: `system`, `dark`, `light`, `light/dark` or a custom one), so pi-claudio works on light terminals too. The bundled **`claudio`** theme reproduces Claude Code's exact dark palette.
 
 No build step: pi loads the TypeScript directly.
@@ -247,6 +248,22 @@ Claude Code's `Task` fan-out (parallel sub-agents, pipelines, reviews) comes fro
 ```
 
 `/workflow` opens the inline run browser; the bundled `/review`, `/parallel-review`, `/council`, `/scout`, `/deep-research` templates and the `subagents_*` tools work unchanged.
+
+### Claude Code agents (`agentType`)
+
+Claude Code's subagents are Markdown files with frontmatter — `.claude/agents/<name>.md` in the project, `~/.claude/agents/<name>.md` for the user, `<plugin>:<name>` from an installed plugin's `agents/` directory — and its Workflow scripts launch them with `agent(prompt, { agentType: "<name>" })`. pi-claudio makes that option work in pi-extensible-workflows: when a workflow `agent()` (or `agent.create()`, or a nested child) passes `agentType`, the agent file is found with Claude Code's precedence, its body is appended to the system prompt, its `tools:` list narrows the pi tools (`Bash` → `bash`/`bash_output`/`kill_shell`, `Read` → `read`, `Edit`/`MultiEdit` → `edit`, `Write` → `write`, `Glob` → `find`/`ls`, `Grep` → `grep`, `TodoWrite` → `todo_write`, `AskUserQuestion` → `ask_user_question`, `mcp__*` unchanged; tools pi does not have are dropped), `disallowedTools:` adds exclusions, `model: <alias>` applies when a workflow model alias of that name exists (`sonnet`/`opus`/`haiku` are otherwise inherited from the parent), and the agent is labelled after the file. The agent files stay the single source of truth for both Claude Code and pi. An unknown `agentType` fails the launch with the paths that were searched; project agents need project trust.
+
+```js
+const review = await agent(prompt("Review the branch in {wt}", { wt }), {
+  agentType: "mktgos-reviewer",          // .claude/agents/mktgos-reviewer.md
+  outputSchema: REVIEW_SCHEMA,
+});
+const general = await agent("Keyword: branch. Review it.", {
+  agentType: "lfx-skills:lfx-general-code-reviewer", // an installed Claude Code plugin's agent
+});
+```
+
+The other differences between Claude Code's Workflow API and pi's stay in the script: `parallel(name, { key: fn })` instead of `parallel([fn])`, `outputSchema` instead of `schema`, `phase("Name")` instead of a `phase:` option, and no two concurrent `agent()` calls from the same call site outside `parallel`/`pipeline`.
 
 ### Workflow tips
 

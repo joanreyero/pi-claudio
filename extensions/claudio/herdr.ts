@@ -85,7 +85,12 @@ export function setupHerdr(pi: ExtensionAPI): void {
 		if (quick) renamePane(quick);
 		void generateTitle(ctx, prompt).then((title) => {
 			if (!title) return;
-			pi.setSessionName(title);
+			// The title arrives asynchronously; in print mode the session may already be gone and `pi` stale.
+			try {
+				pi.setSessionName(title);
+			} catch {
+				return;
+			}
 			renamePane(title);
 		});
 	};

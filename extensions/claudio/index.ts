@@ -14,9 +14,12 @@
  *  - rewind after permissions/tools: its tool_call checkpoint runs after the permission gate (no snapshot for rejected calls);
  *  - chrome last: header / editor / footer only read state the others publish on the bus;
  *  - herdr only subscribes to the bus, so its position does not matter;
+ *  - agents (Claude Code agentType for workflows) registers with pi-extensible-workflows' registry, which
+ *    freezes at session_start, so it runs at factory time like everything else; position is irrelevant;
  *  - the /claudio setup command is independent and goes first so its session_start hint is registered early.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { setupClaudeAgents } from "./agents.ts";
 import { setupAsk } from "./ask.ts";
 import { setupBackground } from "./background.ts";
 import { setupChrome } from "./chrome.ts";
@@ -52,4 +55,5 @@ export default function (pi: ExtensionAPI): void {
 	setupMessages(pi);
 	setupChrome(pi);
 	setupHerdr(pi);
+	setupClaudeAgents(pi);
 }
