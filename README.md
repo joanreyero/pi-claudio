@@ -23,7 +23,7 @@ pi-claudio makes [pi](https://pi.dev) look and feel exactly like Claude Code.
 
 ## Features
 
-- **Claude-style transcript** — `●` rows for every tool (`Read`, `Skill` for a `SKILL.md` read, `Bash`, `Update` with a coloured diff, `Write`, `Search`, `List`, `Task`, MCP, generic), `⎿` result previews with `… +N lines`, **ctrl+o** to expand, the gerund spinner (`✻ Noodling…`), elapsed time and token count.
+- **Claude-style transcript** — `●` rows for every tool (`Read`, `Skill` for a `SKILL.md` read, `Read pi docs` and `Read instructions` for pi's docs and `AGENTS.md`/`CLAUDE.md`, `Bash`, `Update` with a coloured diff, `Write`, `Search`, `List`, `Task`, MCP, generic), `⎿` result previews with `… +N lines`, **ctrl+o** to expand, the gerund spinner (`✻ Noodling…`), elapsed time and token count.
 - **Prompt box and footer** — session cost, context usage, permission pill, running workflows and background tasks (**↓** on an empty prompt opens them), other extensions' statuses (aweb's connection state, for one); a matching dark theme. Console output from other extensions goes through pi's notices instead of being written over the prompt box.
 - **Permission modes** — **shift+tab** cycles `bypass permissions` (default) ↔ `plan`; `/permissions default` turns on the ask-before dialogs for shell, edit, write and MCP tools, with "don't ask again for `<prefix>` commands in `<cwd>`". `/add-dir <path>` adds working directories where edits are auto-accepted in `acceptEdits` mode.
 - **AskUserQuestion** — the model asks you 1–4 multiple-choice questions in a dialog (`ask_user_question`), with tabs, multi-select and free text.
