@@ -1,6 +1,6 @@
 schemaVersion: 2
 name: pi-claudio-expert
-description: The pi-claudio expert: develops and maintains pi-claudio, the pi package that makes pi look and feel like Claude Code, in its own worktree.
+description: "The pi-claudio expert: develops and maintains pi-claudio, the pi package that makes pi look and feel like Claude Code, in its own worktree."
 work: worktree      # its own branch in a git worktree of this repository
 knowledge: none     # the project's knowledge is its own docs/; no knowledge base yet
 launch: { harness: pi }
