@@ -3,6 +3,7 @@
  * and the "?" shortcuts panel. Layout inspired by Claude Code's UI.
  *
  * Reads from the shared bus (shared.ts): `permissionMode`, `backgroundTaskCount`, `workflowCount`, `dialog`.
+ * Nothing here changes height while idle or working: the footer is always one row.
  */
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -45,22 +46,12 @@ const local = {
 	lastEscape: 0,
 	requestRender: () => {},
 	setHelpWidget: (_show: boolean) => {},
-	/** `ctx.ui.select` of the session, for ↓ when both background tasks and workflows are running. */
-	select: undefined as ((title: string, options: string[]) => Promise<string | undefined>) | undefined,
 };
 
-/** ↓ on an empty prompt: the one list there is, or a choice when both background tasks and workflows run. */
+/** ↓ on an empty prompt: the background tasks; the workflows only when no task runs (the footer names `/workflow`). */
 function openBackground(): boolean {
 	const tasks = bus.get("backgroundTaskCount") > 0 && actions.openTasks;
 	const workflows = bus.get("workflowCount") > 0 && actions.openWorkflows;
-	if (tasks && workflows && local.select) {
-		const tasksLabel = "Background tasks";
-		void local.select("Manage", [tasksLabel, "Workflows"]).then((choice) => {
-			if (choice === tasksLabel) actions.openTasks?.();
-			else if (choice) actions.openWorkflows?.();
-		});
-		return true;
-	}
 	const open = tasks || workflows;
 	if (!open) return false;
 	open();
@@ -300,6 +291,7 @@ class ClaudioFooter implements Component {
 		private readonly tui: TUI,
 		private readonly ctx: ExtensionContext,
 		private readonly data: ReadonlyFooterDataProvider,
+		private readonly thinkingLevel: () => string,
 	) {
 		this.unsubscribe = bus.subscribeAll(() => this.tui.requestRender());
 	}
@@ -357,19 +349,27 @@ class ClaudioFooter implements Component {
 			.filter(Boolean);
 	}
 
+	/** The current model and, when the model reasons, its thinking level: `claude-fable-5.1 · high`. */
+	private model(): string {
+		const id = this.ctx.model?.id;
+		if (!id) return "";
+		const level = this.ctx.model?.reasoning ? this.thinkingLevel() : "";
+		return level && level !== "off" ? `${id} · ${level}` : id;
+	}
+
 	private rightItems(): string[] {
-		// Leftmost goes first when the row is short: statuses, then the usage stats.
+		// Leftmost goes first when the row is short: statuses, the usage stats, then the model.
 		const items: string[] = [...this.statuses()];
 		const stats = this.sessionStats();
 		if (stats) items.push(dim(stats));
+		const model = this.model();
+		if (model) items.push(dim(model));
 		const pill = modePill();
 		if (pill) items.push(pill);
 		const tasks = bus.get("backgroundTaskCount");
 		const workflows = bus.get("workflowCount");
-		const running: string[] = [];
-		if (workflows > 0) running.push(`${workflows} ${workflows === 1 ? "workflow" : "workflows"}`);
-		if (tasks > 0) running.push(`${tasks} background ${tasks === 1 ? "task" : "tasks"}`);
-		if (running.length) items.push(dim(`${running.join(" · ")} · ↓ to manage`));
+		if (workflows > 0) items.push(dim(`${workflows} ${workflows === 1 ? "workflow" : "workflows"} · /workflow to view`));
+		if (tasks > 0) items.push(dim(`${tasks} background ${tasks === 1 ? "task" : "tasks"} · ↓ to manage`));
 		const usage = this.ctx.getContextUsage();
 		if (usage?.percent != null) {
 			const left = Math.max(0, Math.round(100 - usage.percent));
@@ -405,7 +405,7 @@ class ClaudioFooter implements Component {
 // 4. "?" shortcuts panel
 // ---------------------------------------------------------------------------------------------
 const HELP_COLUMNS: readonly (readonly string[])[] = [
-	["! for shell mode", "/ for commands", "@ for file paths", "/add-dir for more dirs", "↓ for background work"],
+	["! for shell mode", "/ for commands", "@ for file paths", "/add-dir for more dirs", "↓ for background tasks", "/workflow for workflows"],
 	["double tap esc to clear input", "shift + tab to auto-accept edits", "ctrl + o for verbose output", "ctrl + t to toggle tasks", "esc esc to rewind to a message"],
 	[
 		"ctrl + _ to undo",
@@ -464,7 +464,6 @@ export function setupChrome(pi: ExtensionAPI): void {
 		const billing = billingLabel(ctx);
 		const cwd = ctx.cwd;
 
-		local.select = (title, options) => ctx.ui.select(title, options);
 		local.setHelpWidget = (show) =>
 			ctx.ui.setWidget("claudio-shortcuts", show ? () => new HelpPanel() : undefined, { placement: "belowEditor" });
 
@@ -478,7 +477,7 @@ export function setupChrome(pi: ExtensionAPI): void {
 		});
 		ctx.ui.setFooter((tui, _theme: Theme, data: ReadonlyFooterDataProvider) => {
 			local.requestRender = () => tui.requestRender();
-			return new ClaudioFooter(tui, ctx, data);
+			return new ClaudioFooter(tui, ctx, data, () => pi.getThinkingLevel());
 		});
 	});
 
