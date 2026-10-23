@@ -1,6 +1,9 @@
 schemaVersion: 2
 name: pi-claudio-expert
-description: "The pi-claudio expert: develops and maintains pi-claudio, the pi package that makes pi look and feel like Claude Code, in its own worktree."
-work: worktree      # its own branch in a git worktree of this repository
+description: "The pi-claudio expert: pi's extension API and Claude Code's UI, the domain of pi-claudio, the pi package that makes pi look and feel like Claude Code — plans and specifies pi-claudio work, drives pi-claudio-developer, verifies what it delivers and lands its PRs."
+work: directory     # it plans and coordinates; it may keep its own worktrees for small changes (team rules)
 knowledge: none     # the project's knowledge is its own docs/; no knowledge base yet
-launch: { harness: pi }
+capabilities:
+  oats.engineering-expert: { from: package }
+  reyero.team-rules: { from: github.com/joanreyero/reyero-oats }
+launch: { harness: pi, model: claude-fable-5.1 }   # plans are made with fable (Joan, 2026-10-23)

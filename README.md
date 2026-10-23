@@ -309,7 +309,7 @@ Then, if `"theme"` in `~/.pi/agent/settings.json` is `"claudio"` or `"light/clau
 
 ## Development
 
-See [docs/DEV.md](docs/DEV.md) for the module layout, pi API notes and the typecheck / tmux snapshot harness.
+See [docs/DEV.md](docs/DEV.md) for the module layout, pi API notes and the typecheck / tmux snapshot harness, and [CONTRIBUTING.md](CONTRIBUTING.md) for how changes are reviewed.
 
 ## License
 

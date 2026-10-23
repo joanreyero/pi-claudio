@@ -1,0 +1,9 @@
+schemaVersion: 2
+name: pi-claudio-maintainer
+description: "The pi-claudio maintainer: keeps the direction and coherence of pi-claudio, the pi package that makes pi look and feel like Claude Code; reviews every PR, merges on Joan's yes, releases."
+work: directory     # its work/ is whatever its task gives it (a PR's checkout); never the repository itself
+knowledge: none     # no knowledge base yet: the repository's docs stand in
+capabilities:
+  oats.maintainer: { from: package }
+  reyero.team-rules: { from: github.com/joanreyero/reyero-oats }
+launch: { harness: pi, model: claude-fable-5.1 }   # decisions about the project are made with fable (Joan, 2026-10-23)
