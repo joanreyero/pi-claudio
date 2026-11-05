@@ -8,7 +8,7 @@
  * opens `/workflow`, the package's run browser. Inert without the package: no events arrive.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { actions, bus } from "./shared.ts";
+import { actions, bus, owned } from "./shared.ts";
 
 /** The package's hard-terminal run states; every other state (paused, awaiting input, interrupted…) still needs a look. */
 const FINISHED = new Set(["completed", "failed", "stopped"]);
@@ -25,7 +25,8 @@ export function setupWorkflows(pi: ExtensionAPI): void {
 	const publish = () => bus.set("workflowCount", [...runs.values()].filter((s) => !FINISHED.has(s)).length);
 	const runOf = (event: unknown): string | undefined => {
 		const { runId, sessionId: session } = (event ?? {}) as { runId?: unknown; sessionId?: unknown };
-		return typeof runId === "string" && session === sessionId ? runId : undefined;
+		// `sessionId` stays unset in a workflow agent's session (session_start is ours only), so it counts nothing.
+		return typeof runId === "string" && sessionId !== undefined && session === sessionId ? runId : undefined;
 	};
 	const track = (names: string[], next: (event: unknown, known: string | undefined) => string | undefined) => {
 		for (const name of names) {
@@ -49,15 +50,16 @@ export function setupWorkflows(pi: ExtensionAPI): void {
 	track(["workflow:run-completed"], () => "completed");
 	track(["workflow:run-failed"], () => "failed");
 
-	pi.on("session_start", (_event, ctx) => {
+	// Ours only: a workflow agent's own session must not reset the count of the runs it belongs to.
+	pi.on("session_start", owned((_event, ctx) => {
 		runs.clear();
 		sessionId = ctx.sessionManager.getSessionId();
 		publish();
 		if (ctx.mode === "tui") actions.openWorkflows = () => void pi.sendUserMessage("/workflow", { expandPromptTemplates: true });
-	});
-	pi.on("session_shutdown", () => {
+	}));
+	pi.on("session_shutdown", owned(() => {
 		actions.openWorkflows = undefined;
 		runs.clear();
 		bus.set("workflowCount", 0);
-	});
+	}));
 }

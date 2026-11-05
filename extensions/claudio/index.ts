@@ -19,6 +19,10 @@
  *  - the /claudio setup command is independent and goes first so its session_start hint is registered early;
  *  - stray (console output kept off the TUI) right after it, so the other session_start handlers already log through it;
  *  - workflows (the footer's workflow count, ↓ → /workflow) before chrome, which reads what it publishes.
+ *
+ * pi-extensible-workflows runs workflow agents as further pi sessions in this process, and they load this
+ * package too. Module state belongs to the interactive session, so every lifecycle handler that writes it is
+ * wrapped in `owned(...)` (shared.ts, "Session ownership").
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { setupClaudeAgents } from "./agents.ts";
@@ -32,7 +36,7 @@ import { setupPermissions } from "./permissions.ts";
 import { setupPr } from "./pr.ts";
 import { setupRewind } from "./rewind.ts";
 import { setupClaudioCommand } from "./setup.ts";
-import { bindTheme } from "./shared.ts";
+import { bindTheme, owned } from "./shared.ts";
 import { setupSpinner } from "./spinner.ts";
 import { setupStray } from "./stray.ts";
 import { setupTodo } from "./todo.ts";
@@ -43,9 +47,10 @@ export default function (pi: ExtensionAPI): void {
 	// Colours: every module paints through shared.ts, which resolves its palette against the active Pi
 	// theme. Bind it before anything renders; `ctx.ui.theme` is a live proxy, so later theme switches
 	// (/settings, `system` re-queries, hot-reloaded theme files) are picked up on the next render.
-	pi.on("session_start", (_event, ctx) => {
+	// A workflow agent's session loads this package too and would unbind the TUI's theme (shared.ts, "Session ownership").
+	pi.on("session_start", owned((_event, ctx) => {
 		bindTheme(ctx.hasUI ? ctx.ui.theme : undefined);
-	});
+	}));
 	setupClaudioCommand(pi);
 	setupStray(pi);
 	setupDirs(pi);

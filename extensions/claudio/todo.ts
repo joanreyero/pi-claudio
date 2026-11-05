@@ -18,7 +18,7 @@ import type { AgentToolResult, ExtensionAPI, ExtensionContext, Theme, ToolDefini
 import type { Component } from "@earendil-works/pi-tui";
 import { Text, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { ANSI, bus, FG, fg, type TodoItem as SharedTodoItem } from "./shared.ts";
+import { ANSI, bus, FG, fg, owned, type TodoItem as SharedTodoItem } from "./shared.ts";
 
 // ── palette via shared.ts (resolved from the active Pi theme at render time; FG is a live getter) ──
 const orange = (s: string): string => fg("claudio", s);
@@ -164,8 +164,9 @@ class TodoList implements Component {
 // ── Setup ──────────────────────────────────────────────────────────────────────────────────
 export function setupTodo(pi: ExtensionAPI): void {
 	publish();
-	pi.on("session_start", (_e, ctx) => reconstruct(ctx));
-	pi.on("session_tree", (_e, ctx) => reconstruct(ctx));
+	// Rebuilt from our branch only: a workflow agent's session would empty the list (shared.ts, "Session ownership").
+	pi.on("session_start", owned((_e, ctx) => reconstruct(ctx)));
+	pi.on("session_tree", owned((_e, ctx) => reconstruct(ctx)));
 
 	pi.registerTool<typeof TodoParams, TodoDetails>({
 		name: "todo_write",

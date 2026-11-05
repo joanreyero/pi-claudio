@@ -677,6 +677,34 @@ export const actions: {
 } = {};
 
 // ───────────────────────────────────────────────────────────────────────────────
+// Session ownership
+// ───────────────────────────────────────────────────────────────────────────────
+
+/**
+ * pi-extensible-workflows runs each workflow agent as another pi session inside this process
+ * (`createAgentSession`, mode "print"), and that session loads this package too: its own
+ * `ExtensionAPI`, the same modules. Module state, the bus and `actions` are therefore shared, and
+ * they belong to the interactive session. Once a TUI session has started, lifecycle events from
+ * any other session leave them alone (a finished agent's `session_shutdown` used to dispose the
+ * spinner and abort every background task). Without a TUI (`pi -p`, JSON, RPC) every session owns
+ * them, as before.
+ */
+let interactiveSeen = false;
+
+export function ownsState(ctx: { readonly mode: string }): boolean {
+	if (ctx.mode === "tui") {
+		interactiveSeen = true;
+		return true;
+	}
+	return !interactiveSeen;
+}
+
+/** A lifecycle handler that runs only for the session that owns the shared state (`ownsState`). */
+export function owned<E, C extends { readonly mode: string }, R>(handler: (event: E, ctx: C) => R): (event: E, ctx: C) => R | undefined {
+	return (event, ctx) => (ownsState(ctx) ? handler(event, ctx) : undefined);
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
 // Dialog chrome: marginTop 1, a single top rule in the dialog colour
 // (round border with left/right/bottom disabled), title row at paddingX 1, then the body at
 // paddingX 1. No side or bottom borders.
