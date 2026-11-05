@@ -23,7 +23,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { ANSI, FG, VERBS, bus, formatDuration, formatTokens, spinnerFrames } from "./shared.ts";
+import { ANSI, FG, VERBS, bus, formatDuration, formatTokens, owned, spinnerFrames } from "./shared.ts";
 
 // ── palette (from shared.ts; `FG` is a live getter over the active Pi theme) ─────────────────────
 const FG_RESET = ANSI.fgReset;
@@ -279,28 +279,28 @@ export function setupSpinner(pi: ExtensionAPI): void {
 		setWorkingTitle(ctx);
 	});
 
-	pi.on("message_start", (event) => {
+	pi.on("message_start", owned((event) => {
 		if (event.message.role !== "assistant") return;
 		streamedChars = 0;
 		partialUsageTokens = 0;
 		thinking = false;
 		// Once the model speaks again the `ran tool for Ns` item is retired.
 		lastToolMs = undefined;
-	});
+	}));
 
-	pi.on("tool_execution_start", () => {
+	pi.on("tool_execution_start", owned(() => {
 		toolStartedAt = Date.now();
-	});
+	}));
 	// Time spent in a permission dialog does not count as "running tool" (the task list does not reset it).
 	bus.subscribe("dialog", (current, previous) => {
 		if (current === null && (previous?.kind === "permission" || previous?.kind === "ask") && toolStartedAt !== undefined) toolStartedAt = Date.now();
 	});
-	pi.on("tool_execution_end", () => {
+	pi.on("tool_execution_end", owned(() => {
 		if (toolStartedAt !== undefined) lastToolMs = Date.now() - toolStartedAt;
 		toolStartedAt = undefined;
-	});
+	}));
 
-	pi.on("message_update", (event) => {
+	pi.on("message_update", owned((event) => {
 		if (event.message.role !== "assistant") return;
 		const ev = event.assistantMessageEvent;
 		if (ev.type === "text_delta" || ev.type === "thinking_delta" || ev.type === "toolcall_delta") {
@@ -309,31 +309,33 @@ export function setupSpinner(pi: ExtensionAPI): void {
 		if (ev.type === "thinking_start" || ev.type === "thinking_delta") thinking = true;
 		else if (ev.type === "thinking_end" || ev.type === "text_start" || ev.type === "toolcall_start") thinking = false;
 		partialUsageTokens = (event.message as AssistantMessage).usage.output;
-	});
+	}));
 
-	pi.on("message_end", (event) => {
+	pi.on("message_end", owned((event) => {
 		if (event.message.role !== "assistant") return;
 		const final = (event.message as AssistantMessage).usage.output;
 		finishedTokens += final > 0 ? final : Math.round(streamedChars / 4);
 		streamedChars = 0;
 		partialUsageTokens = 0;
-	});
+	}));
 
-	pi.on("session_before_compact", () => {
+	pi.on("session_before_compact", owned(() => {
 		compacting = true;
-	});
-	pi.on("session_compact", () => {
+	}));
+	pi.on("session_compact", owned(() => {
 		compacting = false;
-	});
-	pi.on("session_compact_failed", () => {
+	}));
+	pi.on("session_compact_failed", owned(() => {
 		compacting = false;
-	});
+	}));
 
-	pi.on("agent_end", (_event, ctx) => stop(ctx));
-	pi.on("session_shutdown", () => {
+	// A workflow agent's session runs in this process and ends long before ours: `owned` keeps its
+	// agent_end / session_shutdown from stopping and disposing our spinner (see shared.ts).
+	pi.on("agent_end", owned((_event, ctx) => stop(ctx)));
+	pi.on("session_shutdown", owned(() => {
 		stop();
 		clearIdleTitleTimers();
 		widget?.dispose();
 		widget = undefined;
-	});
+	}));
 }

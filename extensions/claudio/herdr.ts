@@ -26,7 +26,7 @@
  */
 import { execFile } from "node:child_process";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { bus, type DialogState } from "./shared.ts";
+import { bus, owned, type DialogState } from "./shared.ts";
 
 const LABELS: Partial<Record<DialogState["kind"], string>> = {
 	permission: "Permission needed",
@@ -95,7 +95,8 @@ export function setupHerdr(pi: ExtensionAPI): void {
 		});
 	};
 
-	pi.on("session_start", (_event, ctx) => {
+	// Our pane is named from our session only, never from a workflow agent's prompt.
+	pi.on("session_start", owned((_event, ctx) => {
 		named = false;
 		const existing = pi.getSessionName();
 		if (existing) {
@@ -105,12 +106,12 @@ export function setupHerdr(pi: ExtensionAPI): void {
 		}
 		const first = firstUserPrompt(ctx);
 		if (first) nameFrom(ctx, first);
-	});
+	}));
 
-	pi.on("before_agent_start", (event, ctx) => {
+	pi.on("before_agent_start", owned((event, ctx) => {
 		if (named || event.messageType !== "user" || typeof event.prompt !== "string") return;
 		nameFrom(ctx, event.prompt);
-	});
+	}));
 }
 
 /** The first user prompt on the active branch (resumed sessions), ignoring slash commands. */

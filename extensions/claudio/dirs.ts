@@ -16,7 +16,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import * as os from "node:os";
 import { isAbsolute, join, normalize, resolve, sep } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { bold, tildify } from "./shared.ts";
+import { bold, owned, tildify } from "./shared.ts";
 
 const ENTRY_TYPE = "claudio-add-dir";
 const CONTEXT_FILE_NAMES = ["AGENTS.md", "CLAUDE.md"];
@@ -92,8 +92,9 @@ function contextFileIn(dir: string): { path: string; content: string } | undefin
 
 // ── Setup ──────────────────────────────────────────────────────────────────────────────────
 export function setupDirs(pi: ExtensionAPI): void {
-	pi.on("session_start", (_e, ctx) => reconstruct(ctx));
-	pi.on("session_tree", (_e, ctx) => reconstruct(ctx));
+	// Rebuilt from our branch only: a workflow agent's session would drop them (shared.ts, "Session ownership").
+	pi.on("session_start", owned((_e, ctx) => reconstruct(ctx)));
+	pi.on("session_tree", owned((_e, ctx) => reconstruct(ctx)));
 
 	// Tell the model about the extra directories and load their AGENTS.md / CLAUDE.md, as Pi does for the cwd.
 	pi.on("before_agent_start", (event) => {

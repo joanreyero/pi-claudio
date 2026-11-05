@@ -20,6 +20,7 @@ import { CURSOR_MARKER, matchesKey, renderFakeCursor, truncateToWidth, visibleWi
 import {
 	formatTokens,
 	actions,
+	owned,
 	bashBorder,
 	bold,
 	bus,
@@ -482,13 +483,14 @@ export function setupChrome(pi: ExtensionAPI): void {
 		});
 	});
 
-	pi.on("agent_start", (_e, ctx) => {
+	// A workflow agent's run starts and ends inside ours; only our own runs set `running`.
+	pi.on("agent_start", owned((_e, ctx) => {
 		local.running = true;
 		local.hasMessages = true;
 		if (ctx.mode === "tui") local.requestRender();
-	});
-	pi.on("agent_end", (_e, ctx) => {
+	}));
+	pi.on("agent_end", owned((_e, ctx) => {
 		local.running = false;
 		if (ctx.mode === "tui") local.requestRender();
-	});
+	}));
 }

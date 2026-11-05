@@ -24,7 +24,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { Component, Focusable } from "@earendil-works/pi-tui";
 import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { actions, bus, dialogInnerWidth, dialogLines, dim, ELLIPSIS, fg, pluralize, POINTER, stateDir, success } from "./shared.ts";
+import { actions, bus, dialogInnerWidth, dialogLines, dim, ELLIPSIS, fg, owned, pluralize, POINTER, stateDir, success } from "./shared.ts";
 
 // ───────────────────────────── storage ─────────────────────────────
 
@@ -373,13 +373,13 @@ export function setupRewind(pi: ExtensionAPI): void {
 		takeSnapshot(sessionId, turnId, path);
 	});
 
-	pi.on("session_start", (_e, ctx) => {
+	pi.on("session_start", owned((_e, ctx) => {
 		loadSession(ctx.sessionManager.getSessionId());
 		if (ctx.mode === "tui") actions.openRewind = () => void pi.sendUserMessage("/rewind", { expandPromptTemplates: true });
-	});
-	pi.on("session_shutdown", () => {
+	}));
+	pi.on("session_shutdown", owned(() => {
 		actions.openRewind = undefined;
-	});
+	}));
 
 	// 2 + 3. The picker and its actions.
 	const rewind = async (ctx: ExtensionCommandContext): Promise<void> => {

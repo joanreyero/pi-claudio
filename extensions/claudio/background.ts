@@ -37,7 +37,7 @@ import { createWriteStream, mkdirSync, writeFileSync, type WriteStream } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Type } from "typebox";
-import { ANSI, actions, bold, bus, dialogInnerWidth, dialogLines, dim, fg, formatDuration, moreLines, RESULT_INDENT } from "./shared.ts";
+import { ANSI, actions, bold, bus, dialogInnerWidth, dialogLines, dim, fg, formatDuration, moreLines, ownsState, RESULT_INDENT } from "./shared.ts";
 
 // ── palette via shared.ts (resolved from the active Pi theme at render time; never cache FG/BG at module load)
 const orange = (s: string): string => fg("claudio", s);
@@ -116,6 +116,8 @@ interface BackgroundTask {
 	title: string;
 	/** Present when the task wakes the agent on output (and always on exit). */
 	wake?: WakeState;
+	/** The session that started the task: its wakes go there, not to whichever session loaded last. */
+	pi: ExtensionAPI;
 }
 
 /** Per-task wake state (debounced batches of lines; based on pi-bgwatch by Josep Reyero, MIT). */
@@ -151,7 +153,6 @@ const MAX_LINES_PER_WAKE = 200;
 const DEFAULT_WAKE_DEBOUNCE_MS = 3000;
 /** Per pi process, so several sessions on one host never share a directory. */
 const WAKE_ROOT = join(tmpdir(), "pi-claudio", String(process.pid));
-let piApi: ExtensionAPI | undefined;
 
 function newId(): string {
 	let id = "";
@@ -286,7 +287,6 @@ function sendWake(task: BackgroundTask, kind: "output" | "exit"): void {
 		w.dropped = 0;
 	}
 	if (kind === "output" && lines.length === 0) return;
-	if (!piApi) return;
 
 	let content = task.title;
 	if (kind === "exit") {
@@ -305,7 +305,7 @@ function sendWake(task: BackgroundTask, kind: "output" | "exit"): void {
 	if (w) content += w.logError ? `\nLog unavailable (${w.logError}); shell id: ${task.id} (bash_output for the full output).` : `\nLog: ${w.logFile}`;
 	else content += `\nShell id: ${task.id} (bash_output for the full output).`;
 
-	piApi.sendMessage(
+	task.pi.sendMessage(
 		{
 			customType: "bg-wake",
 			content,
@@ -379,7 +379,6 @@ function notifyModel(pi: ExtensionAPI, task: BackgroundTask): void {
  * Throws on an invalid `wake.pattern`.
  */
 export function startBackgroundTask(pi: ExtensionAPI, command: string, cwd: string, timeoutSeconds: number | undefined, wake?: WakeOptions): BackgroundTask {
-	piApi = pi;
 	const settings = pi.getSettings();
 	const ops = createLocalBashOperations({ shellPath: settings.shellPath });
 	const prefix = settings.shellCommandPrefix;
@@ -396,6 +395,7 @@ export function startBackgroundTask(pi: ExtensionAPI, command: string, cwd: stri
 		controller: new AbortController(),
 		byUser: false,
 		title: wake?.title?.trim() || command,
+		pi,
 	};
 	if (wake) task.wake = createWake(task, wake);
 	tasks.set(task.id, task);
@@ -544,8 +544,8 @@ class BackgroundTasksDialog implements Component, Focusable {
 
 // ── Setup ──────────────────────────────────────────────────────────────────────────────────
 export function setupBackground(pi: ExtensionAPI): void {
-	piApi = pi;
-	bus.set("backgroundTaskCount", 0);
+	// Recount instead of resetting: a workflow agent's session loads this module too (shared.ts).
+	publishCount();
 
 	// Metadata (name, description, outputSchema…) comes from an unconfigured definition; the one
 	// that actually executes is created lazily because settings are not readable at load time.
@@ -685,6 +685,7 @@ export function setupBackground(pi: ExtensionAPI): void {
 						byUser: true,
 						snapshotDriven: true,
 						title: command,
+						pi,
 					};
 					tasks.set(bgTask.id, bgTask);
 					publishCount();
@@ -903,9 +904,12 @@ export function setupBackground(pi: ExtensionAPI): void {
 	});
 
 	// ── Cleanup ──
-	pi.on("session_shutdown", () => {
-		actions.openTasks = undefined;
+	// A workflow agent's session (shared.ts, "Session ownership") stops only the tasks it started.
+	pi.on("session_shutdown", (_e, ctx) => {
+		const owner = ownsState(ctx);
+		if (owner) actions.openTasks = undefined;
 		for (const t of tasks.values()) {
+			if (!owner && t.pi !== pi) continue;
 			if (t.status === "running") t.controller.abort();
 			if (t.wake?.timer) clearTimeout(t.wake.timer);
 		}
