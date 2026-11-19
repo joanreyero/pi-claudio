@@ -6,8 +6,10 @@
  *   ● assistant text                   (bullet on the first non-empty paragraph only)
  *   ✻ Thinking…                        (collapsed thinking label)
  *
- * Pi cannot swap the user/assistant message components, and the compaction summary / custom
- * message boxes have no extension hook (`CompactionSummaryMessageComponent` is hard-wired), so those are left to the theme (customMessageBg / userMessageBg …).
+ * Pi cannot swap the user/assistant message components, and the compaction summary box has no
+ * extension hook (`CompactionSummaryMessageComponent` is hard-wired), so those are left to the theme
+ * (customMessageBg / userMessageBg …). Custom messages are restyled per `customType` with a message
+ * renderer (background.ts for wakes, aweb.ts for the aweb extension's).
  *
  * The assistant transformer runs on every render of the (possibly streaming) Markdown source, so
  * it is a pure function of the text: given the same text it always yields the same output.
